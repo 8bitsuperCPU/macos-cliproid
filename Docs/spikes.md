@@ -219,7 +219,7 @@ with a confirmed new pid.
 
 ---
 
-## S4 — CGEvent paste round-trip — **PASS (first target)**
+## S4 — CGEvent paste round-trip — **PASS on native Cocoa; other targets untested**
 
 Confirmed end to end on 2026-09-11 17:25:17, against **Notes**, from the granted build:
 
@@ -239,19 +239,61 @@ Note the marker text is what landed, not the user's copied text — that is corr
 The spike deliberately overwrites the pasteboard with a unique marker so that a successful paste is
 unambiguous rather than something that could be explained by the clipboard's prior contents.
 
+### Second target: TextEdit — PASS
+
+Run non-interactively via `open --env S4_TARGETS=com.apple.TextEdit`, into a freshly created empty
+document:
+
+```
+[spike] Accessibility trusted: true
+[spike] --- com.apple.TextEdit
+[spike]     activated=false modifiersCleared=true vKey=9
+[spike]     posted Cmd+V — target should now contain: ClipRoid spike paste 1789113027
+```
+
+Document content afterwards: `ClipRoid spike paste 1789113027`. 
+
+`vKey=9` is `kVK_ANSI_V`, so on this US QWERTY layout the resolved keycode coincides with the
+physical position. That is the expected result here and is *not* evidence the layout resolution is
+unnecessary — it needs testing under Dvorak, where the two diverge, before M2 can claim it works.
+
+### Bug found: `activated=false` when the target is already frontmost
+
+Note `activated=false` above, on a paste that nonetheless succeeded. The cause is a real defect in
+the sequence as specified:
+
+`didActivateApplicationNotification` only fires on a *change* of active app. When the target is
+already frontmost — which is the common case for a hotkey-driven paste, since the user is typing
+into the app they want to paste into — no notification ever arrives, and the code waits the full
+400ms timeout for an event that cannot happen.
+
+The paste still worked, so this would never show up as a failure. It just quietly spends 400ms of
+the 3-second budget §13 sets, on every paste, invisibly.
+
+**Fix before M2:** short-circuit when `target.isActive` is already true, and only wait for the
+notification when activation is genuinely being changed. Worth a test.
+
 ### Still to do: the per-app table
 
 S4's deliverable is a per-app result, not a boolean, because the plan already accepts degradation in
 terminals and Electron. Remaining targets, all currently running on this machine and covering the
 cases that matter:
 
-| Target | Bundle id | Case it exercises |
-|---|---|---|
-| TextEdit | `com.apple.TextEdit` | Plain `NSTextView` baseline |
-| Brave | `com.brave.Browser` | Chromium web view |
-| Discord | `com.hnc.Discord` | Electron |
-| Terminal | `com.apple.Terminal` | Terminal, incl. bracketed paste |
-| OneNote | `com.microsoft.onenote.mac` | Non-Apple native app |
+| Target | Bundle id | Case it exercises | Result |
+|---|---|---|---|
+| Notes | `com.apple.Notes` | Native Cocoa, hotkey-driven | **PASS** (2026-09-11 17:25) |
+| TextEdit | `com.apple.TextEdit` | Plain `NSTextView` baseline | **PASS** (2026-09-11 17:50) |
+| Brave | `com.brave.Browser` | Chromium web view | not yet run |
+| Discord | `com.hnc.Discord` | Electron | not yet run |
+| Terminal | `com.apple.Terminal` | Terminal, incl. bracketed paste | not yet run |
+| OneNote | `com.microsoft.onenote.mac` | Non-Apple native app | not yet run |
+
+The three untested rows are the ones the plan expects to be *least* reliable — web view, Electron,
+and terminal — so the table cannot be treated as evidence that auto-paste works broadly. Both
+passes so far are native Cocoa text views, the easiest case. Running the rest means pasting into
+live documents and, for Discord, a real message box, so they are left until they can be run against
+scratch windows or with explicit per-app consent. **M2 cannot exit on the strength of these two
+rows.**
 
 `Spikes/SpikeApp` now takes `S4_TARGETS=<bundle-id,...>` and pastes into each in turn with no
 keypress, so the whole table can be produced in one run once the bundle is granted again.
