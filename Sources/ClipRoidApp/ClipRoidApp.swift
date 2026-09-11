@@ -6,8 +6,35 @@ import ClipRoidCore
 
 /// This file must not be named main.swift — SwiftPM treats that name as top-level code and @main
 /// then conflicts with it.
+/// Keeps the app alive when its windows are closed, and records why it is shutting down.
+///
+/// Without `applicationShouldTerminateAfterLastWindowClosed` returning false, closing the ClipRoid
+/// window quits the process — which for a clipboard manager means capture silently stops and the
+/// global hotkey silently dies. The failure presents as "Ctrl+Cmd+V doesn't work any more", with
+/// nothing in the logs and no crash report, because the exit was perfectly clean.
+///
+/// Spec §12 rules out a menu-bar-only app, so ClipRoid has real windows — which makes closing one
+/// an ordinary thing for a user to do, and makes this the single most likely way to break the app.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var onTerminate: (@MainActor () async -> Void)?
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Diagnostics.log("ClipRoid terminating")
+    }
+
+    /// Reopening from the Dock or Spotlight should bring the window back rather than doing nothing.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        true
+    }
+}
+
 @main
 struct ClipRoidApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var environment: AppEnvironment
     @State private var quickPaste: QuickPastePanel?
 

@@ -323,6 +323,29 @@ let spike = Spike()
 
 // S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
 // Without it, arm the hotkey and wait, which is the S2 firing test.
+// M2_CHORD=<bundleId>:<char>:<mods> — activate an app and post a chord at it.
+// Used to verify that closing ClipRoid's window does not quit the app, which needs a real Cmd+W
+// delivered to a real window and cannot be done from a shell without Accessibility.
+if let spec = ProcessInfo.processInfo.environment["M2_CHORD"] {
+    let parts = spec.split(separator: ":").map(String.init)
+    if parts.count == 3, let ch = parts[1].first {
+        var flags: CGEventFlags = []
+        if parts[2].contains("cmd") { flags.insert(.maskCommand) }
+        if parts[2].contains("ctrl") { flags.insert(.maskControl) }
+        if parts[2].contains("shift") { flags.insert(.maskShift) }
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: parts[0]).first {
+            app.activate(options: [])
+            Thread.sleep(forTimeInterval: 1.2)
+            postChord(ch, flags: flags)
+            log("posted \(parts[2])+\(ch) to \(parts[0])")
+        } else {
+            log("\(parts[0]) is not running")
+        }
+    }
+    Thread.sleep(forTimeInterval: 0.8)
+    exit(0)
+}
+
 // M2_DRIVE=<search text> — open ClipRoid's Quick Paste, type, Enter, and time the whole thing.
 if let searchText = ProcessInfo.processInfo.environment["M2_DRIVE"] {
     let target = ProcessInfo.processInfo.environment["M2_TARGET"] ?? "com.apple.TextEdit"
