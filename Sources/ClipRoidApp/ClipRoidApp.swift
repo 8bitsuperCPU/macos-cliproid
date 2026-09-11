@@ -37,6 +37,7 @@ struct ClipRoidApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var environment: AppEnvironment
     @State private var quickPaste: QuickPastePanel?
+    @State private var shelf: ShelfPanel?
 
     init() {
         // Set before anything else is built. A SwiftPM executable run via `swift run` has no
@@ -74,15 +75,24 @@ struct ClipRoidApp: App {
         environment.registerHotKeys()
     }
 
+    @MainActor
+    private func installShelf() {
+        guard shelf == nil else { return }
+        let model = ShelfViewModel(store: environment.store, coordinator: environment.paste)
+        let panel = ShelfPanel(model: model)
+        shelf = panel
+        panel.show()
+        Diagnostics.log("Shelf shown at \(model.position.rawValue)")
+    }
+
     var body: some Scene {
         WindowGroup {
-            LibraryView(
-                model: LibraryViewModel(store: environment.store),
-                environment: environment)
+            LibraryView(store: environment.store, environment: environment)
                 .frame(minWidth: 760, minHeight: 460)
                 .task {
                     await environment.start()
                     installQuickPaste()
+                    installShelf()
                 }
         }
         .defaultSize(width: 1040, height: 700)
@@ -93,6 +103,9 @@ struct ClipRoidApp: App {
         MenuBarExtra("ClipRoid", systemImage: "doc.on.clipboard") {
             Button("Quick Paste") { quickPaste?.show() }
                 .keyboardShortcut("v", modifiers: [.control, .command])
+            Button(shelf?.isVisible == true ? "Hide Shelf" : "Show Shelf") {
+                shelf?.isVisible == true ? shelf?.hide() : shelf?.show()
+            }
             Button("Open ClipRoid") {
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }

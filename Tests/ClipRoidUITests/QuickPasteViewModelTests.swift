@@ -107,3 +107,68 @@ struct QuickPasteViewModelTests {
         await store.close()
     }
 }
+
+@Suite("Shelf view model")
+@MainActor
+struct ShelfViewModelTests {
+    private func make(_ scratch: Scratch) async throws -> (ShelfViewModel, ClipStore) {
+        let store = ClipStore.makeDefault(root: scratch.url)
+        try await store.open(backupDirectory: nil)
+        let coordinator = PasteCoordinator(
+            store: store, pasteboard: await SystemPasteboard(),
+            deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
+        return (ShelfViewModel(store: store, coordinator: coordinator), store)
+    }
+
+    private func clip(_ body: String, sensitivity: Sensitivity = .none) -> CapturedClip {
+        CapturedClip(contentType: .text, contentHash: Dedupe.hash(body), body: body,
+                     sensitivity: sensitivity)
+    }
+
+    /// The shelf is on screen all the time, which makes it exactly the wrong place for a copied
+    /// password — anyone walking past sees it. Spec §4.7 keeps secrets off it by default.
+    @Test("Secrets never reach the shelf")
+    func excludesSecrets() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        try await store.insert(clip("ordinary text"))
+        try await store.insert(clip("AKIAIOSFODNN7EXAMPLE", sensitivity: .secret))
+        try await store.insert(clip("more ordinary text"))
+
+        model.start()
+        try await Task.sleep(for: .milliseconds(250))
+
+        #expect(model.clips.count == 2)
+        #expect(!model.clips.contains { $0.sensitivity == .secret })
+        await store.close()
+    }
+
+    @Test("The shelf shows at most the configured number of items")
+    func respectsItemCount() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        for i in 1...20 { try await store.insert(clip("clip \(i)")) }
+
+        model.itemCount = 5
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 5)
+        await store.close()
+    }
+
+    /// Over-fetching then filtering is what stops a run of secrets emptying the shelf: with a
+    /// naive "take N then filter", ten copied passwords would leave nothing showing.
+    @Test("A run of secrets does not empty the shelf")
+    func backfillsPastSecrets() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        for i in 1...8 { try await store.insert(clip("old clip \(i)")) }
+        for i in 1...6 { try await store.insert(clip("sk-secret\(i)aaaaaaaaaaaaaaaaaaaa", sensitivity: .secret)) }
+
+        model.itemCount = 5
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 5, "should backfill with older non-secret clips")
+        await store.close()
+    }
+}

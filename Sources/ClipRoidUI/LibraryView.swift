@@ -1,14 +1,21 @@
 import SwiftUI
 import ClipRoidCore
 import ClipRoidKit
+import ClipRoidStore
 
 /// The full Library window (spec §4.11).
 public struct LibraryView: View {
-    @Bindable var model: LibraryViewModel
+    /// `@State`, not a passed-in `@Bindable`.
+    ///
+    /// Constructing the view model in the Scene body — `LibraryView(model: LibraryViewModel(...))`
+    /// — builds a brand new one on every body evaluation. `start()` then runs against an instance
+    /// that is immediately discarded, so the window renders "No clips here" and empty facets while
+    /// the store is full. The view has to own the model for it to survive a re-render.
+    @State private var model: LibraryViewModel
     let environment: AppEnvironment
 
-    public init(model: LibraryViewModel, environment: AppEnvironment) {
-        self.model = model
+    public init(store: ClipStore, environment: AppEnvironment) {
+        _model = State(initialValue: LibraryViewModel(store: store))
         self.environment = environment
     }
 

@@ -328,3 +328,63 @@ generalises — never block the thread the answer is delivered on. This is the s
 found in the same short sequence, after the already-frontmost short-circuit; both were invisible
 because the paste succeeded regardless, which is exactly why the harness logs each step rather than
 just the outcome.
+
+
+---
+
+## R6 — Is the "notch shelf" buildable as specified? — **No. Below the menu bar instead.**
+
+*Plan risk R6: spec §4.3 describes a "notch/dynamic-island style shelf", and macOS may not permit
+one.*
+
+### Two hard constraints
+
+1. **You cannot draw inside the notch.** It is not an addressable region; the menu bar routes
+   around it. `NSScreen.auxiliaryTopLeftArea` / `auxiliaryTopRightArea` describe the flanks
+   *beside* it, and those belong to the menu bar.
+2. **A window at the very top either hides behind the menu bar or covers it.** Sitting above
+   `.mainMenu` level permanently occludes the menu bar — hostile behaviour, and it would fail any
+   reasonable review.
+
+### A third constraint the spec does not anticipate
+
+Measured on this machine:
+
+```
+screen 0  LG HDR WQHD  3440x1440   safeAreaInsets.top = 0   no notch   menu bar 30pt
+screen 1  U28E590      2560x1440   safeAreaInsets.top = 0   no notch   menu bar  0pt
+```
+
+**Neither display has a notch**, because this is a laptop driving two external monitors. That is an
+extremely common setup, and in it the spec's headline shelf feature has nowhere to live. A
+notch-shaped design is not merely hard to build — for many users there is no notch on screen at
+all. Note also that the secondary display reports a menu bar height of zero: "below the menu bar"
+means something different per screen, so the position has to be derived, never assumed.
+
+### What was built, and it works
+
+A borderless non-activating `NSPanel` at the top of `visibleFrame` — which by definition already
+excludes the menu bar and the Dock, making it exactly the highest point a well-behaved window may
+occupy. Verified at runtime rather than assumed:
+
+```
+Shelf frame 1420,1356 600x54 | visibleFrame.maxY=1410 screen.maxY=1440 | clears menu bar: true
+```
+
+It overlays window content rather than reserving space; reserving would require a system-level
+accessory that third-party apps cannot have. `.floating` level, `canJoinAllSpaces`, `stationary`,
+`fullScreenAuxiliary`, `ignoresCycle`, and it can never become key — a strip of clips must not pull
+focus out of whatever the user is typing into. It repositions on
+`didChangeScreenParametersNotification` so docking or waking a monitor does not strand it.
+
+### Recommendation for the spec
+
+Drop the notch framing from §4.3. The shelf is a **screen-edge strip**, with top as the default and
+left/right/bottom as the alternatives §4.3 already lists. On a notched laptop display the top
+position naturally sits just below the notch, which gets the intended look for free — without
+depending on hardware most desks do not have.
+
+### Still untested
+
+Behaviour against a full-screen app, and across a Space switch, on this two-monitor setup.
+`fullScreenAuxiliary` and `canJoinAllSpaces` are set for it, but set is not the same as verified.
