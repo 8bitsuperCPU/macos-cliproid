@@ -60,14 +60,15 @@ struct LibraryClipRow: View {
             ClipThumbnail(clip: clip, model: model, side: dense ? 22 : 40)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(clip.sensitivity == .secret ? "••••••••••••••••" : clip.preview)
+                Text(clip.sensitivity == .secret ? "••••••••••••••••" : clip.displayText)
                     .lineLimit(dense ? 1 : 2)
                     .font(dense ? .caption : .body)
                     .blur(radius: clip.sensitivity == .secret ? 3 : 0)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    AppIcon(bundleId: clip.sourceAppBundleId, side: 11)
                     if let app = clip.sourceAppName { Text(app) }
-                    Text(clip.copiedAt, style: .relative)
+                    ClipTimestamp(date: clip.copiedAt)
                     if clip.repeatCount > 1 { Text("×\(clip.repeatCount)") }
                 }
                 .font(.caption2)

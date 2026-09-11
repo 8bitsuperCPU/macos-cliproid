@@ -110,8 +110,15 @@ struct LibrarySidebar: View {
 
             Section("Apps") {
                 ForEach(model.sourceApps.prefix(12), id: \.bundleId) { app in
-                    row(.app(app.bundleId), app.name.isEmpty ? app.bundleId : app.name,
-                        "app", count: app.count)
+                    HStack {
+                        AppIcon(bundleId: app.bundleId, side: 15)
+                        Text(app.name.isEmpty ? app.bundleId : app.name)
+                        Spacer()
+                        Text("\(app.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                    }
+                    .tag(LibrarySection.app(app.bundleId))
                 }
             }
         }

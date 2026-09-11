@@ -31,7 +31,7 @@ struct ClipGridView: View {
                 .frame(maxWidth: .infinity)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
 
-            Text(clip.sensitivity == .secret ? "••••••••" : clip.preview)
+            Text(clip.sensitivity == .secret ? "••••••••" : clip.displayText)
                 .font(.caption)
                 .lineLimit(2)
                 .blur(radius: clip.sensitivity == .secret ? 3 : 0)

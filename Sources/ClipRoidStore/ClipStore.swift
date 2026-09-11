@@ -168,7 +168,7 @@ public actor ClipStore {
     private static let summaryColumns = """
     id, uuid, content_type, body, title, source_app_bundle_id, source_app_name,
     copied_at, content_size_bytes, repeat_count, is_pinned, is_favorite,
-    sensitivity, thumb_blob_path, color_hex, shortcut
+    sensitivity, thumb_blob_path, color_hex, shortcut, image_width, image_height
     """
 
     /// The same columns qualified for the FTS join, where `clips` is aliased to `c`.
@@ -194,7 +194,8 @@ public actor ClipStore {
             sensitivity: Sensitivity(rawValue: row.int(12)) ?? .none,
             thumbnailPath: row.string(13),
             colorHex: row.string(14),
-            shortcut: row.string(15)
+            shortcut: row.string(15),
+            imageSize: row.isNull(16) ? nil : (width: row.int(16), height: row.int(17))
         )
     }
 

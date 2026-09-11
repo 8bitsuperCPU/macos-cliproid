@@ -127,6 +127,33 @@ public struct ClipSummary: Sendable, Identifiable, Equatable {
     public var thumbnailPath: String?
     public var colorHex: String?
     public var shortcut: String?
+    /// Pixel dimensions, for image and screenshot clips.
+    public var imageSize: (width: Int, height: Int)?
+
+    /// What the row actually shows.
+    ///
+    /// An image clip has no body and, until OCR lands, no title — so `preview` is empty and the row
+    /// renders as a bare thumbnail above a blank line, which reads as broken rather than as "an
+    /// image". Every clip needs *something* to say about itself.
+    public var displayText: String {
+        if !preview.isEmpty { return preview }
+        if let title, !title.isEmpty { return title }
+        switch contentType {
+        case .image, .screenshot:
+            if let size = imageSize {
+                return "\(contentType == .screenshot ? "Screenshot" : "Image") · \(size.width)×\(size.height)"
+            }
+            return contentType == .screenshot ? "Screenshot" : "Image"
+        case .color:
+            return colorHex ?? "Colour"
+        case .file:
+            return "File"
+        case .multiClip:
+            return "Multi-clip"
+        default:
+            return "Empty clip"
+        }
+    }
 
     public init(
         id: Int64,
@@ -144,7 +171,8 @@ public struct ClipSummary: Sendable, Identifiable, Equatable {
         sensitivity: Sensitivity = .none,
         thumbnailPath: String? = nil,
         colorHex: String? = nil,
-        shortcut: String? = nil
+        shortcut: String? = nil,
+        imageSize: (width: Int, height: Int)? = nil
     ) {
         self.id = id
         self.uuid = uuid
@@ -162,6 +190,14 @@ public struct ClipSummary: Sendable, Identifiable, Equatable {
         self.thumbnailPath = thumbnailPath
         self.colorHex = colorHex
         self.shortcut = shortcut
+        self.imageSize = imageSize
+    }
+
+    public static func == (lhs: ClipSummary, rhs: ClipSummary) -> Bool {
+        lhs.id == rhs.id && lhs.copiedAt == rhs.copiedAt && lhs.preview == rhs.preview
+            && lhs.isPinned == rhs.isPinned && lhs.isFavorite == rhs.isFavorite
+            && lhs.sensitivity == rhs.sensitivity && lhs.thumbnailPath == rhs.thumbnailPath
+            && lhs.repeatCount == rhs.repeatCount && lhs.shortcut == rhs.shortcut
     }
 }
 

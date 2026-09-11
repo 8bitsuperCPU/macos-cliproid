@@ -166,11 +166,11 @@ struct QuickPasteRow: View {
                 .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(clip.sensitivity == .secret ? "••••••••••••" : clip.preview)
+                Text(clip.sensitivity == .secret ? "••••••••••••" : clip.displayText)
                     .lineLimit(1)
                 HStack(spacing: 5) {
                     if let app = clip.sourceAppName { Text(app) }
-                    Text(clip.copiedAt, style: .relative)
+                    ClipTimestamp(date: clip.copiedAt)
                 }
                 .font(.caption2)
                 .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.tertiary))
