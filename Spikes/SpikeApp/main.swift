@@ -24,7 +24,7 @@ let log = { (s: String) in
         try? line.write(to: logURL, atomically: true, encoding: .utf8)
     }
 }
-log("launched; responsible-process test. AXIsProcessTrusted=\(AXIsProcessTrusted())")
+log("launched (rebuild #2 — binary changed). AXIsProcessTrusted=\(AXIsProcessTrusted())")
 
 // MARK: - Layout-aware keycode for "v"
 

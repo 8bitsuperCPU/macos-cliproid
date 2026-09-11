@@ -90,7 +90,7 @@ background `LSUIElement` app with no window of its own, and drove a successful p
 
 ---
 
-## S3 — TCC grant survival across rebuilds — **FAILS self-signed; retest pending with Apple Development**
+## S3 — TCC grant survival across rebuilds — **PASS with Apple Development; FAILS self-signed**
 
 *Risk R2: if grants do not survive a rebuild, every permission-dependent feature becomes untestable
 and failures look like code bugs.*
@@ -160,16 +160,39 @@ automatically and fall back to the self-signed one with a warning.
 
 Certificate expires **2027-02-04**; renew via Xcode before then.
 
-### Retest still outstanding — do not record this as fixed yet
+### Retest — passed
 
-A stable designated requirement was *also* true of the self-signed certificate, and it was not
-sufficient. The only conclusive evidence is a grant that demonstrably survives a rebuild:
+A stable designated requirement was *also* true of the self-signed certificate and was not
+sufficient, so the DR alone was not accepted as evidence this time. The grant was made by hand and
+then a changed binary was put under it:
 
-1. grant Accessibility to the freshly Apple-Development-signed `ClipRoidSpike.app`;
-2. confirm `AXIsProcessTrusted()` is `true`;
-3. rebuild, relaunch, and confirm it is **still** `true`.
+| Step | cdhash | pid / launch | `AXIsProcessTrusted()` |
+|---|---|---|---|
+| 1. Granted build, launched via `open` | `23a20990…` | 2543, fresh | **`true`** |
+| 2. Source changed, rebuilt | `59226623…` | — | — |
+| 3. Relaunched via `open` | `59226623…` | 2644, fresh | **`true`** |
 
-Until step 3 passes, S3 stays open.
+**A different binary kept the grant.** With an Apple Development certificate TCC honours the
+designated requirement, and the development-time permission friction is gone for M2 and M5.
+
+### Launch method changes the answer — `open`, never direct exec
+
+The same trusted bundle reports `AXIsProcessTrusted() == false` when its Mach-O is exec'd straight
+from a shell, and `true` when launched with `open`:
+
+```
+dist/ClipRoidSpike.app/Contents/MacOS/ClipRoidSpike   ->  false
+open dist/ClipRoidSpike.app                           ->  true
+```
+
+TCC attributes a directly-exec'd binary to its **responsible process** — the terminal — so the
+grant being consulted is the terminal's, not the app's. This cuts both ways and can manufacture a
+false result in either direction: a paste that "works" from a shell may be riding the terminal's
+grant, and an app that looks unpermitted may be perfectly well granted.
+
+**Rule for every permission-dependent test: launch with `open`, and confirm a fresh pid**
+(`ps -o pid,lstart`). `open --env VAR=value` passes environment variables, and `open --stdout`/
+`--stderr` redirect output, so a bundle can still be scripted without exec'ing it directly.
 
 ### Regardless of the outcome
 
