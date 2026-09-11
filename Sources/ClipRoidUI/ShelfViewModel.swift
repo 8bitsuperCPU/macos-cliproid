@@ -21,11 +21,22 @@ public final class ShelfViewModel {
 
     private let store: ClipStore
     private let coordinator: PasteCoordinator
+    private let settings: SettingsStore
     private var observation: Task<Void, Never>?
 
-    public init(store: ClipStore, coordinator: PasteCoordinator) {
+    public init(store: ClipStore, coordinator: PasteCoordinator, settings: SettingsStore) {
         self.store = store
         self.coordinator = coordinator
+        self.settings = settings
+        self.position = ShelfPosition(rawValue: settings.shelfPosition.rawValue) ?? .top
+        self.itemCount = settings.shelfItemCount
+    }
+
+    /// Re-reads the preferences the Settings window may have changed.
+    public func applySettings() {
+        position = ShelfPosition(rawValue: settings.shelfPosition.rawValue) ?? .top
+        itemCount = settings.shelfItemCount
+        Task { await reload() }
     }
 
     public func start() {
@@ -51,7 +62,22 @@ public final class ShelfViewModel {
         // is always on screen, which makes it exactly the wrong place for a copied password —
         // anyone walking past sees it.
         let recent = (try? await store.recent(limit: itemCount * 3)) ?? []
-        clips = Array(recent.lazy.filter { $0.sensitivity != .secret }.prefix(itemCount))
+        let hideSecrets = settings.hideSecretsFromShelf
+        clips = Array(recent.lazy
+            .filter { !hideSecrets || $0.sensitivity != .secret }
+            .prefix(itemCount))
+    }
+
+    public func thumbnailURL(for summary: ClipSummary) async -> URL? {
+        guard let path = summary.thumbnailPath else { return nil }
+        return await store.thumbnailURL(relativePath: path)
+    }
+
+    /// Capped, because a shelf preview showing a 40MB log paste helps nobody and would take a
+    /// visible moment to render.
+    public func fullText(for summary: ClipSummary) async -> String {
+        let text = (try? await store.fullText(id: summary.id)) ?? summary.displayText
+        return String(text.prefix(600))
     }
 
     public func paste(_ clip: ClipSummary) {

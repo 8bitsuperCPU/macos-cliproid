@@ -45,6 +45,16 @@ public final class ShelfPanel: NSObject {
 
     public var isVisible: Bool { panel?.isVisible ?? false }
 
+    /// Called when the Settings window changes shelf position or item count.
+    public func applySettings() {
+        model.applySettings()
+        if model.position == .hidden {
+            hide()
+        } else {
+            show()
+        }
+    }
+
     public func show() {
         guard model.position != .hidden else { hide(); return }
         let panel = existingOrNewPanel()

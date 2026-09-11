@@ -18,6 +18,7 @@ public final class AppEnvironment {
     public let enrichment: EnrichmentPipeline
     public let retention: RetentionSweeper
     public let hotKeys: HotKeyCenter
+    public let settings: SettingsStore
     public let paste: PasteCoordinator
 
     /// Set by the UI layer, which owns the panel. Kit deliberately does not import SwiftUI, so the
@@ -53,6 +54,7 @@ public final class AppEnvironment {
         self.enrichment = EnrichmentPipeline(store: store, recognizer: VisionTextRecognizer())
         self.retention = RetentionSweeper(store: store)
         self.hotKeys = HotKeyCenter()
+        self.settings = SettingsStore()
         self.paste = PasteCoordinator(
             store: store, pasteboard: pasteboard,
             deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
@@ -117,7 +119,13 @@ public final class AppEnvironment {
         await poller.seed(changeCount: count)
         await capture.start()
         await enrichment.start()
+        await retention.updatePolicy(settings.retentionPolicy)
         await retention.start()
+    }
+
+    /// Pushes changed retention preferences to the sweeper without waiting for the next sweep.
+    public func applyRetentionSettings() async {
+        await retention.updatePolicy(settings.retentionPolicy)
     }
 
     public func stop() async {

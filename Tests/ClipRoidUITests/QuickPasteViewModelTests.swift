@@ -5,6 +5,7 @@ import ClipRoidCore
 import ClipRoidKit
 import ClipRoidStore
 import ClipRoidPlatform
+import ClipRoidKit
 
 final class Scratch {
     let url: URL
@@ -117,7 +118,10 @@ struct ShelfViewModelTests {
         let coordinator = PasteCoordinator(
             store: store, pasteboard: await SystemPasteboard(),
             deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
-        return (ShelfViewModel(store: store, coordinator: coordinator), store)
+        // An isolated defaults suite, so tests never touch the developer's real preferences.
+        let defaults = UserDefaults(suiteName: "ClipRoidTests-\(UUID().uuidString)")!
+        let settings = SettingsStore(defaults: defaults)
+        return (ShelfViewModel(store: store, coordinator: coordinator, settings: settings), store)
     }
 
     private func clip(_ body: String, sensitivity: Sensitivity = .none) -> CapturedClip {

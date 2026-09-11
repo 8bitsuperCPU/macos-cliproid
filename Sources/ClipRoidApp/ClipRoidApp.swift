@@ -78,7 +78,9 @@ struct ClipRoidApp: App {
     @MainActor
     private func installShelf() {
         guard shelf == nil else { return }
-        let model = ShelfViewModel(store: environment.store, coordinator: environment.paste)
+        let model = ShelfViewModel(
+            store: environment.store, coordinator: environment.paste,
+            settings: environment.settings)
         let panel = ShelfPanel(model: model)
         shelf = panel
         panel.show()
@@ -98,6 +100,13 @@ struct ClipRoidApp: App {
         .defaultSize(width: 1040, height: 700)
         .commands {
             CommandGroup(replacing: .newItem) {}
+        }
+
+        Settings {
+            SettingsView(settings: environment.settings) {
+                shelf?.applySettings()
+                Task { await environment.applyRetentionSettings() }
+            }
         }
 
         MenuBarExtra("ClipRoid", systemImage: "doc.on.clipboard") {
