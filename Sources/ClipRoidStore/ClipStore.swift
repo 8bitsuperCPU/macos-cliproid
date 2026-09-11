@@ -14,6 +14,8 @@ public actor ClipStore {
     private let logger = Logger(subsystem: "dev.philtronic.ClipRoid", category: "ClipStore")
 
     private var continuations: [UUID: AsyncStream<ClipStoreChange>.Continuation] = [:]
+    /// Set only during a bulk import; see `insertBatch(_:)`.
+    private var isPublishingSuppressed = false
 
     public init(db: Database, blobs: BlobStore) {
         self.db = db
@@ -60,6 +62,7 @@ public actor ClipStore {
     }
 
     private func publish(_ change: ClipStoreChange) {
+        guard !isPublishingSuppressed else { return }
         for (_, c) in continuations { c.yield(change) }
     }
 
@@ -397,6 +400,12 @@ public actor ClipStore {
         }
     }
 
+    /// Resolves a stored relative path to a file URL, so views can load a thumbnail lazily by URL
+    /// rather than the view model holding image bytes.
+    public func thumbnailURL(relativePath: String) async -> URL? {
+        await blobs.absoluteURL(relativePath: relativePath)
+    }
+
     public func imageData(forBlobPath path: String) async -> Data? {
         await blobs.read(relativePath: path)
     }
@@ -479,6 +488,125 @@ public actor ClipStore {
     /// Surfaced in Settings so the user can see what the history is costing them (spec §4.19).
     public func storageSizeBytes() async -> Int64 {
         await blobs.totalSizeBytes()
+    }
+
+
+    // MARK: - Mutations
+
+    /// Edits a text clip's content (spec §4.11).
+    ///
+    /// `body` is an FTS-indexed column, so this UPDATE is seen by the `clips_au` trigger and the
+    /// index is rewritten for this row: the clip becomes findable by its new text and stops being
+    /// findable by its old. Doing this through raw SQL elsewhere would silently desynchronise the
+    /// index, which is why `ClipStore` exposes no raw SQL at all.
+    public func updateText(id: Int64, to newText: String) async throws {
+        // Long text lives in a blob with only the indexed prefix inline, so both have to move
+        // together or a search hit would open a clip showing different content.
+        var body = newText
+        var blobPath: String?
+        if newText.utf8.count > SizeLimits.textBlobThreshold {
+            let uuid = try await self.uuid(for: id) ?? UUID()
+            blobPath = try await blobs.write(
+                Data(newText.utf8), uuid: uuid, ext: "txt",
+                maxBytes: SizeLimits.maxCaptureBytesCeiling)
+            body = String(newText.prefix(SizeLimits.maxIndexedBodyBytes))
+        }
+
+        try await db.run(
+            """
+            UPDATE clips SET body = ?, text_blob_path = ?, content_hash = ?, content_size_bytes = ?
+            WHERE id = ?;
+            """,
+            [.text(body), .optional(blobPath), .text(Dedupe.hash(newText)),
+             .int(Int64(newText.utf8.count)), .int(id)])
+
+        if let summary = try await summary(id: id) { publish(.updated(summary)) }
+    }
+
+    private func uuid(for id: Int64) async throws -> UUID? {
+        try await db.query("SELECT uuid FROM clips WHERE id = ?;", [.int(id)])
+            .first.flatMap { $0.string(0) }.flatMap(UUID.init(uuidString:))
+    }
+
+    public func setPinned(_ pinned: Bool, ids: [Int64]) async throws {
+        try await setFlag("is_pinned", pinned, ids: ids)
+    }
+
+    public func setFavorite(_ favorite: Bool, ids: [Int64]) async throws {
+        try await setFlag("is_favorite", favorite, ids: ids)
+    }
+
+    public func setSensitivity(_ sensitivity: Sensitivity, id: Int64) async throws {
+        try await db.run(
+            "UPDATE clips SET sensitivity = ? WHERE id = ?;",
+            [.int(sensitivity.rawValue), .int(id)])
+        if let summary = try await summary(id: id) { publish(.updated(summary)) }
+    }
+
+    /// Column name is interpolated, never bound — PRAGMA-style identifiers cannot be parameters.
+    /// Only ever called with the two literals above, never with user input.
+    private func setFlag(_ column: String, _ value: Bool, ids: [Int64]) async throws {
+        guard !ids.isEmpty else { return }
+        let placeholders = ids.map { _ in "?" }.joined(separator: ",")
+        // Not an FTS column, so this deliberately does not touch the index — which is exactly why
+        // the clips_au trigger is scoped with UPDATE OF.
+        try await db.run(
+            "UPDATE clips SET \(column) = ? WHERE id IN (\(placeholders));",
+            [.bool(value)] + ids.map { .int($0) })
+        for id in ids {
+            if let summary = try await summary(id: id) { publish(.updated(summary)) }
+        }
+    }
+
+    // MARK: - Facets
+
+    /// Apps that have actually produced clips, newest first, for the Library's app filter.
+    /// Served by `idx_clips_app_time`.
+    public func sourceApps() async throws -> [(bundleId: String, name: String, count: Int)] {
+        try await db.query(
+            """
+            SELECT source_app_bundle_id, COALESCE(MAX(source_app_name), ''), COUNT(*)
+            FROM clips WHERE source_app_bundle_id IS NOT NULL
+            GROUP BY source_app_bundle_id ORDER BY COUNT(*) DESC;
+            """
+        ).map { (bundleId: $0.string(0) ?? "", name: $0.string(1) ?? "", count: $0.int(2)) }
+    }
+
+    /// Counts per content type, for the filter chips.
+    public func typeCounts() async throws -> [ClipContentType: Int] {
+        var counts: [ClipContentType: Int] = [:]
+        for row in try await db.query("SELECT content_type, COUNT(*) FROM clips GROUP BY content_type;") {
+            if let type = ClipContentType(rawValue: row.int(0)) { counts[type] = row.int(1) }
+        }
+        return counts
+    }
+
+    public func counts() async throws -> (total: Int, pinned: Int, favorites: Int, secrets: Int) {
+        let row = try await db.query("""
+            SELECT COUNT(*),
+                   SUM(is_pinned), SUM(is_favorite),
+                   SUM(CASE WHEN sensitivity = 2 THEN 1 ELSE 0 END)
+            FROM clips;
+            """).first
+        return (row?.int(0) ?? 0, row?.int(1) ?? 0, row?.int(2) ?? 0, row?.int(3) ?? 0)
+    }
+
+    /// Bulk insert for fixtures and backfills.
+    ///
+    /// Publishing is suppressed for the duration: emitting 10,000 individual UI deltas would cost
+    /// far more than the single reload the caller does afterwards, and would make the timeline
+    /// thrash while the import ran. `Task.yield()` between chunks keeps the actor from monopolising
+    /// the cooperative pool.
+    public func insertBatch(_ clips: [CapturedClip]) async throws {
+        isPublishingSuppressed = true
+        defer { isPublishingSuppressed = false }
+
+        for chunk in stride(from: 0, to: clips.count, by: 500) {
+            for clip in clips[chunk..<min(chunk + 500, clips.count)] {
+                _ = try await insert(clip)
+            }
+            await Task.yield()
+        }
     }
 
     // MARK: - Delete

@@ -323,6 +323,71 @@ let spike = Spike()
 
 // S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
 // Without it, arm the hotkey and wait, which is the S2 firing test.
+// AX_DUMP=<bundleId> — walk another app's accessibility tree.
+//
+// Verifies that a window actually rendered and is populated, without needing Screen Recording.
+// A screenshot taken without that permission is a black rectangle, which proves nothing.
+func dumpAX(_ element: AXUIElement, depth: Int, maxDepth: Int, counts: inout [String: Int]) {
+    guard depth <= maxDepth else { return }
+    var roleRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+    let role = (roleRef as? String) ?? "?"
+    // The menu bar is an enormous subtree (1,900+ items) and tells us nothing about whether the
+    // window rendered. Skip it, and skip nested applications, which is how the walk ended up
+    // enumerating menus instead of window content.
+    if role == "AXMenuBar" || role == "AXMenuBarItem" || role == "AXMenu" || role == "AXApplication" {
+        return
+    }
+    counts[role, default: 0] += 1
+
+    var titleRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleRef)
+    var valueRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+    let label = (titleRef as? String) ?? (valueRef as? String) ?? ""
+
+    if depth <= 6 && !label.isEmpty {
+        log(String(repeating: "  ", count: depth) + "\(role): \(label.prefix(60))")
+    }
+
+    var childrenRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+          let children = childrenRef as? [AXUIElement] else { return }
+    for child in children.prefix(60) {
+        dumpAX(child, depth: depth + 1, maxDepth: maxDepth, counts: &counts)
+    }
+}
+
+if let bundleId = ProcessInfo.processInfo.environment["AX_DUMP"] {
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
+        log("\(bundleId) is not running"); exit(1)
+    }
+    app.activate(options: [])
+    Thread.sleep(forTimeInterval: 1.5)
+
+    let axApp = AXUIElementCreateApplication(app.processIdentifier)
+    var windowsRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef)
+    let windows = (windowsRef as? [AXUIElement]) ?? []
+    log("\(bundleId): \(windows.count) window(s)")
+    for (i, w) in windows.enumerated() {
+        var r: CFTypeRef?, t: CFTypeRef?
+        AXUIElementCopyAttributeValue(w, kAXRoleAttribute as CFString, &r)
+        AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &t)
+        log("  window[\(i)] role=\((r as? String) ?? "?") title=\((t as? String) ?? "")")
+    }
+
+    var counts: [String: Int] = [:]
+    for window in windows {
+        dumpAX(window, depth: 0, maxDepth: 14, counts: &counts)
+    }
+    log("--- element counts ---")
+    for (role, n) in counts.sorted(by: { $0.value > $1.value }).prefix(14) {
+        log("  \(role): \(n)")
+    }
+    exit(0)
+}
+
 // M2_CHORD=<bundleId>:<char>:<mods> — activate an app and post a chord at it.
 // Used to verify that closing ClipRoid's window does not quit the app, which needs a real Cmd+W
 // delivered to a real window and cannot be done from a shell without Accessibility.

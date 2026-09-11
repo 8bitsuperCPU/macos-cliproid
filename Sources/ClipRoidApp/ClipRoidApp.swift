@@ -53,6 +53,14 @@ struct ClipRoidApp: App {
     private func installQuickPaste() {
         guard quickPaste == nil else { return }
         Diagnostics.log("Installing Quick Paste panel")
+        // Report the window inventory shortly after launch. A SwiftUI app that silently fails to
+        // open its main window looks identical, from outside, to one that opened it fine.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            let windows = NSApplication.shared.windows
+            Diagnostics.log("Windows: \(windows.count) — " + windows.map {
+                "\(type(of: $0))(visible=\($0.isVisible) title=\"\($0.title)\" size=\(Int($0.frame.width))x\(Int($0.frame.height)))"
+            }.joined(separator: ", "))
+        }
         let model = QuickPasteViewModel(store: environment.store, coordinator: environment.paste)
         let panel = QuickPastePanel(model: model) {
             environment.paste.clearTarget()
@@ -68,14 +76,16 @@ struct ClipRoidApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(environment: environment)
-                .frame(minWidth: 420, minHeight: 320)
+            LibraryView(
+                model: LibraryViewModel(store: environment.store),
+                environment: environment)
+                .frame(minWidth: 760, minHeight: 460)
                 .task {
                     await environment.start()
                     installQuickPaste()
                 }
         }
-        .defaultSize(width: 520, height: 640)
+        .defaultSize(width: 1040, height: 700)
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
