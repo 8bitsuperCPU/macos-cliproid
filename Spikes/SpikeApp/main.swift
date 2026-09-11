@@ -9,9 +9,22 @@
 import AppKit
 import Carbon.HIToolbox
 
+/// Also mirrored to a file, because a bundle launched with `open` has no stderr to read — and
+/// launching with `open` versus exec'ing the binary directly is itself the thing under test:
+/// TCC attributes a directly-exec'd binary to its *responsible process* (the terminal), so a
+/// paste that "works" from a shell may be riding the terminal's Accessibility grant, not the
+/// app's own.
+let logURL = URL(fileURLWithPath: "/tmp/cliproid-spike.log")
 let log = { (s: String) in
-    FileHandle.standardError.write(Data(("[spike] " + s + "\n").utf8))
+    let line = "[spike] " + s + "\n"
+    FileHandle.standardError.write(Data(line.utf8))
+    if let h = try? FileHandle(forWritingTo: logURL) {
+        h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+    } else {
+        try? line.write(to: logURL, atomically: true, encoding: .utf8)
+    }
 }
+log("launched; responsible-process test. AXIsProcessTrusted=\(AXIsProcessTrusted())")
 
 // MARK: - Layout-aware keycode for "v"
 
@@ -81,12 +94,19 @@ final class Spike {
         // window appears here; one frame later the frontmost app is ClipRoid and this is useless.
         guard let target = NSWorkspace.shared.frontmostApplication else { return }
         log("--- fire #\(fireCount): target = \(target.localizedName ?? "?") (pid \(target.processIdentifier))")
+        paste(into: target)
+    }
+
+    /// The paste sequence, separated from the hotkey so the per-app results table S4 asks for can be
+    /// produced by naming targets rather than pressing the hotkey once per app.
+    @discardableResult
+    func paste(into target: NSRunningApplication) -> String? {
 
         guard AXIsProcessTrusted() else {
             log("    no Accessibility — clipboard-only fallback would run here (still useful)")
-            return
+            return nil
         }
-        guard let vKey = keyCodeForV() else { log("    could not resolve 'v' keycode"); return }
+        guard let vKey = keyCodeForV() else { log("    could not resolve 'v' keycode"); return nil }
 
         let marker = "ClipRoid spike paste \(Int(Date().timeIntervalSince1970))"
         let pb = NSPasteboard.general
@@ -110,7 +130,7 @@ final class Spike {
         let cleared = waitForModifiersToClear()
         log("    activated=\(activated) modifiersCleared=\(cleared) vKey=\(vKey)")
 
-        guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
+        guard let src = CGEventSource(stateID: .combinedSessionState) else { return nil }
         let magic: Int64 = 0x43_4C_52_44
         let down = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: true)
         down?.flags = .maskCommand
@@ -121,10 +141,30 @@ final class Spike {
         usleep(20_000)
         up?.post(tap: .cghidEventTap)
         log("    posted Cmd+V — target should now contain: \(marker)")
+        return marker
     }
 }
 
 NSApplication.shared.setActivationPolicy(.accessory)
 let spike = Spike()
+
+// S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
+// Without it, arm the hotkey and wait, which is the S2 firing test.
+if let targets = ProcessInfo.processInfo.environment["S4_TARGETS"], !targets.isEmpty {
+    log("Accessibility trusted: \(AXIsProcessTrusted())")
+    for bundleId in targets.split(separator: ",").map(String.init) {
+        guard let app = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleId).first else {
+            log("--- \(bundleId): NOT RUNNING, skipped")
+            continue
+        }
+        log("--- \(bundleId)")
+        spike.paste(into: app)
+        Thread.sleep(forTimeInterval: 1.0)
+    }
+    log("done")
+    exit(0)
+}
+
 spike.start()
 NSApplication.shared.run()
