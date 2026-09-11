@@ -29,6 +29,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign "ClipRoid Development" "$APP"
+# Same identity rule as Scripts/bundle.sh: an Apple Development certificate has a TeamIdentifier,
+# which is what makes a TCC grant survive a rebuild.
+IDENTITY="$(security find-identity -v -p codesigning \
+    | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -1)"
+IDENTITY="${IDENTITY:-ClipRoid Development}"
+echo "Signing with: $IDENTITY"
+codesign --force --sign "$IDENTITY" "$APP"
 codesign --verify --strict "$APP"
 echo "Built $APP"

@@ -27,7 +27,33 @@ APP_NAME="ClipRoid"
 # app is given is keyed on this string; changing it silently revokes all of them.
 BUNDLE_ID="dev.philtronic.ClipRoid"
 MIN_MACOS="26.0"
-SIGN_IDENTITY="ClipRoid Development"
+FALLBACK_IDENTITY="ClipRoid Development"
+
+# Signing identity. Prefer an Apple Development certificate over the local self-signed one.
+#
+# This is not cosmetic. A self-signed certificate has no TeamIdentifier, and without one TCC pins
+# Accessibility and Screen Recording grants to the cdhash — so every rebuild revokes them, and the
+# resulting "paste silently does nothing" is indistinguishable from a bug in the paste path.
+# An Apple Development certificate carries a TeamIdentifier and an Apple-anchored designated
+# requirement, which is what lets a grant survive a rebuild. See Docs/spikes.md, S3.
+resolve_identity() {
+    local apple_dev
+    apple_dev="$(security find-identity -v -p codesigning \
+        | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -1)"
+    if [[ -n "$apple_dev" ]]; then
+        printf '%s' "$apple_dev"
+        return 0
+    fi
+    if security find-identity -v -p codesigning | grep -q "$FALLBACK_IDENTITY"; then
+        echo "warning: no Apple Development certificate found; falling back to" >&2
+        echo "         \"$FALLBACK_IDENTITY\". Signing works, but TCC grants will be" >&2
+        echo "         revoked on every rebuild (Docs/spikes.md, S3)." >&2
+        printf '%s' "$FALLBACK_IDENTITY"
+        return 0
+    fi
+    return 1
+}
+
 
 VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo "0.1.0")"
 VERSION="${VERSION#v}"
@@ -125,13 +151,15 @@ else
     # Refuse to fall back to ad-hoc signing silently. Ad-hoc mints a new identity per build, which
     # revokes the app's Accessibility and Screen Recording grants every single time — and the
     # resulting misbehaviour is indistinguishable from a bug in the paste path.
-    if ! security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
-        echo "error: no code-signing identity named \"$SIGN_IDENTITY\"." >&2
-        echo "       Run Scripts/create-signing-identity.sh first." >&2
+    if ! SIGN_IDENTITY="$(resolve_identity)"; then
+        echo "error: no usable code-signing identity." >&2
+        echo "       Either sign in to an Apple ID in Xcode > Settings > Accounts (preferred)," >&2
+        echo "       or run Scripts/create-signing-identity.sh." >&2
         echo "       Signing ad-hoc instead would revoke the app's TCC grants on every rebuild," >&2
         echo "       so this script will not do it for you." >&2
         exit 1
     fi
+    echo "Signing with: $SIGN_IDENTITY"
     codesign --force --sign "$SIGN_IDENTITY" "$APP"
 fi
 

@@ -90,7 +90,7 @@ background `LSUIElement` app with no window of its own, and drove a successful p
 
 ---
 
-## S3 — TCC grant survival across rebuilds — **FAILS for a self-signed identity**
+## S3 — TCC grant survival across rebuilds — **FAILS self-signed; retest pending with Apple Development**
 
 *Risk R2: if grants do not survive a rebuild, every permission-dependent feature becomes untestable
 and failures look like code bugs.*
@@ -134,21 +134,52 @@ keychain access *and* TCC. It genuinely fixes the keychain half — that check i
 not fix the TCC half for a self-signed identity.** R2's mitigation as written in the plan does not
 work, and the plan should be corrected rather than the finding worked around.
 
-Options, in order of preference:
+### The fix: an Apple Development certificate was already on this machine
 
-1. **Sign development builds with a real Developer ID** (Apple Developer Program, ~A$150/yr). A
-   Developer ID certificate carries a TeamIdentifier, TCC uses the DR, and grants survive rebuilds.
-   This is the only option that actually removes the friction, and it is needed for notarization at
-   M6 regardless — so the cost is being paid either way, just earlier.
-2. **Accept re-granting during development.** Workable but genuinely costly for this app: M2 and M5
-   iterate directly on Accessibility-dependent code, and a stale grant presents as "paste silently
-   does nothing", which is indistinguishable from the bug you are actually hunting.
-3. **Keep a permission-testing build separate from the iteration build** — grant one stable bundle,
-   and only rebuild it when the paste path itself changes. Mitigates but does not fix.
+No paid Developer Program purchase is needed for the development-time problem. The machine already
+has one from a previous Xcode sign-in:
 
-**Recommendation: option 1**, and early. Also add a startup diagnostic that logs
-`AXIsProcessTrusted()` on every launch, so a revoked grant announces itself instead of looking like
-a paste bug.
+```
+Apple Development: you@example.com (FQLCU7TN8L)
+subject: UID=Z87NT3D9D5, OU=H22QFNNK6D, O=8bitsuperCPU
+```
+
+**Team ID is `H22QFNNK6D`** — the certificate's `OU` field. (`com.philtronic` is a bundle-identifier
+prefix, not a team.) Signing with it produces what the self-signed certificate could not:
+
+```
+TeamIdentifier=H22QFNNK6D
+designated => identifier "dev.philtronic.ClipRoid" and anchor apple generic
+              and certificate leaf[subject.CN] = "Apple Development: you@example.com (FQLCU7TN8L)"
+              and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
+```
+
+An Apple-anchored requirement with a real team identifier, and verified byte-identical across
+rebuilds. `Scripts/bundle.sh` and `Spikes/SpikeApp/build.sh` now both prefer this identity
+automatically and fall back to the self-signed one with a warning.
+
+Certificate expires **2027-02-04**; renew via Xcode before then.
+
+### Retest still outstanding — do not record this as fixed yet
+
+A stable designated requirement was *also* true of the self-signed certificate, and it was not
+sufficient. The only conclusive evidence is a grant that demonstrably survives a rebuild:
+
+1. grant Accessibility to the freshly Apple-Development-signed `ClipRoidSpike.app`;
+2. confirm `AXIsProcessTrusted()` is `true`;
+3. rebuild, relaunch, and confirm it is **still** `true`.
+
+Until step 3 passes, S3 stays open.
+
+### Regardless of the outcome
+
+Add a startup diagnostic that logs `AXIsProcessTrusted()` on every launch, so a revoked grant
+announces itself instead of presenting as a paste bug.
+
+Note for M6: an Apple Development certificate is for local development only. Notarized distribution
+needs a **Developer ID Application** certificate, which requires the paid Apple Developer Program —
+and is a different signing identity again, so shipped-build grants will not carry over from
+development.
 
 ### A trap this investigation walked into
 
