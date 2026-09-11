@@ -64,6 +64,85 @@ func waitForModifiersToClear(timeout: TimeInterval = 0.3) -> Bool {
     return false
 }
 
+
+// MARK: - Verification: read back what the focused element actually contains
+
+/// Reads the text of the system-wide focused UI element via the Accessibility API.
+///
+/// This is what turns S4 from "a human looked at the screen" into an automated per-app result.
+/// Note it is used only to *verify*, never to deliver the paste — AX text insertion fails or
+/// corrupts state in web views, Electron and terminals, which is precisely the set of apps this
+/// table exists to measure.
+func readFocusedText() -> String? {
+    let system = AXUIElementCreateSystemWide()
+    var focused: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+            system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+          let element = focused else { return nil }
+    let target = unsafeBitCast(element, to: AXUIElement.self)
+
+    // Whole value first; fall back to the selection, which is what some web views and terminals
+    // expose instead.
+    for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
+        var out: CFTypeRef?
+        if AXUIElementCopyAttributeValue(target, attribute as CFString, &out) == .success,
+           let string = out as? String, !string.isEmpty {
+            return string
+        }
+    }
+    return nil
+}
+
+/// Posts Cmd+S, for targets whose AX tree exposes no readable text.
+///
+/// VS Code is the case this exists for: its editor is a custom-rendered surface and the AXTextArea
+/// it exposes holds only a small proxy buffer, so reading it back proves nothing. Saving to a
+/// scratch file and reading that from disk is the only honest way to confirm the paste landed.
+func postSave() {
+    guard let src = CGEventSource(stateID: .combinedSessionState),
+          let vKey = keyCodeForS() else { return }
+    let down = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: true)
+    down?.flags = .maskCommand
+    let up = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: false)
+    down?.post(tap: .cghidEventTap)
+    usleep(20_000)
+    up?.post(tap: .cghidEventTap)
+}
+
+func keyCodeForS() -> CGKeyCode? {
+    guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+          let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+    else { return nil }
+    let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
+    return data.withUnsafeBytes { raw -> CGKeyCode? in
+        guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+        var dead: UInt32 = 0
+        for code in 0..<128 as Range<UInt16> {
+            var chars = [UniChar](repeating: 0, count: 4)
+            var length = 0
+            if UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+                              UInt32(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars) == noErr,
+               length == 1, chars[0] == UniChar(UnicodeScalar("s").value) {
+                return CGKeyCode(code)
+            }
+        }
+        return nil
+    }
+}
+
+/// What kind of element received the paste — useful context when a target fails.
+func describeFocusedElement() -> String {
+    let system = AXUIElementCreateSystemWide()
+    var focused: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+            system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+          let element = focused else { return "none" }
+    let target = unsafeBitCast(element, to: AXUIElement.self)
+    var role: CFTypeRef?
+    AXUIElementCopyAttributeValue(target, kAXRoleAttribute as CFString, &role)
+    return (role as? String) ?? "unknown"
+}
+
 final class Spike {
     private var ref: EventHotKeyRef?
     private var handler: EventHandlerRef?
@@ -125,15 +204,31 @@ final class Spike {
         if target.isActive {
             activated = true
         } else {
-            let sem = DispatchSemaphore(value: 0)
+            // Do NOT block this thread waiting for the notification.
+            //
+            // NSWorkspace delivers didActivateApplicationNotification on the main run loop. A
+            // DispatchSemaphore wait on the main thread therefore blocks the very thread that would
+            // deliver the thing being waited for: the notification cannot arrive, the wait always
+            // runs to its full timeout, and `activated` is always false. The paste still worked,
+            // because by the time 400ms elapsed the app genuinely had activated — so the bug was
+            // invisible and cost 400ms of the 3-second budget on every paste.
+            //
+            // Spinning the run loop lets the notification be delivered. In the real app this
+            // becomes async/await with a continuation; the principle is the same — never block the
+            // thread the answer arrives on.
+            var didActivate = false
             let obs = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil
             ) { note in
                 let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-                if app?.processIdentifier == target.processIdentifier { sem.signal() }
+                if app?.processIdentifier == target.processIdentifier { didActivate = true }
             }
             target.activate(options: [])
-            activated = sem.wait(timeout: .now() + 0.4) == .success
+            let deadline = Date().addingTimeInterval(0.4)
+            while !didActivate && Date() < deadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            activated = didActivate
             NSWorkspace.shared.notificationCenter.removeObserver(obs)
         }
 
@@ -162,6 +257,10 @@ let spike = Spike()
 
 // S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
 // Without it, arm the hotkey and wait, which is the S2 firing test.
+let saveTargets = Set((ProcessInfo.processInfo.environment["S4_SAVE_TARGETS"] ?? "")
+    .split(separator: ",").map(String.init))
+let saveProbePath = ProcessInfo.processInfo.environment["S4_SAVE_PROBE"] ?? ""
+
 if let targets = ProcessInfo.processInfo.environment["S4_TARGETS"], !targets.isEmpty {
     log("Accessibility trusted: \(AXIsProcessTrusted())")
     for bundleId in targets.split(separator: ",").map(String.init) {
@@ -171,8 +270,29 @@ if let targets = ProcessInfo.processInfo.environment["S4_TARGETS"], !targets.isE
             continue
         }
         log("--- \(bundleId)")
-        spike.paste(into: app)
-        Thread.sleep(forTimeInterval: 1.0)
+        let marker = spike.paste(into: app)
+        Thread.sleep(forTimeInterval: 1.2)
+
+        let role = describeFocusedElement()
+        let contents = readFocusedText()
+        if let marker, let contents, contents.contains(marker) {
+            log("    PASS  focused=\(role)")
+        } else if let contents {
+            log("    FAIL  focused=\(role) — marker absent; element holds \(contents.count) chars")
+        } else if let marker, saveTargets.contains(bundleId) {
+            // AX cannot read this one; save and check the file on disk instead.
+            postSave()
+            Thread.sleep(forTimeInterval: 1.5)
+            let onDisk = (try? String(contentsOfFile: saveProbePath, encoding: .utf8)) ?? ""
+            if onDisk.contains(marker) {
+                log("    PASS  focused=\(role) (verified via saved file, not AX)")
+            } else {
+                log("    FAIL  focused=\(role) — not in AX and not in the saved file")
+            }
+        } else {
+            log("    UNVERIFIED  focused=\(role) — element exposes no readable text via AX")
+        }
+        Thread.sleep(forTimeInterval: 0.5)
     }
     log("done")
     exit(0)

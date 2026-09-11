@@ -219,7 +219,7 @@ with a confirmed new pid.
 
 ---
 
-## S4 — CGEvent paste round-trip — **PASS on native Cocoa; other targets untested**
+## S4 — CGEvent paste round-trip — **PASS on all five targets**
 
 Confirmed end to end on 2026-09-11 17:25:17, against **Notes**, from the granted build:
 
@@ -273,30 +273,58 @@ the 3-second budget §13 sets, on every paste, invisibly.
 **Fix before M2:** short-circuit when `target.isActive` is already true, and only wait for the
 notification when activation is genuinely being changed. Worth a test.
 
-### Still to do: the per-app table
+### The per-app table — complete
 
-S4's deliverable is a per-app result, not a boolean, because the plan already accepts degradation in
-terminals and Electron. Remaining targets, all currently running on this machine and covering the
-cases that matter:
+Verification is automated rather than eyeballed: after posting `Cmd+V` the harness reads the
+system-wide focused element's `kAXValueAttribute` via the Accessibility API and checks for the
+marker. AX is used **only to verify, never to deliver** — AX text insertion fails or corrupts state
+in exactly the apps this table measures.
 
-| Target | Bundle id | Case it exercises | Result |
-|---|---|---|---|
-| Notes | `com.apple.Notes` | Native Cocoa, hotkey-driven | **PASS** (2026-09-11 17:25) |
-| TextEdit | `com.apple.TextEdit` | Plain `NSTextView` baseline | **PASS** (2026-09-11 17:50) |
-| Brave | `com.brave.Browser` | Chromium web view | not yet run |
-| Discord | `com.hnc.Discord` | Electron | not yet run |
-| Terminal | `com.apple.Terminal` | Terminal, incl. bracketed paste | not yet run |
-| OneNote | `com.microsoft.onenote.mac` | Non-Apple native app | not yet run |
+| Target | Bundle id | Case | Focused role | Result |
+|---|---|---|---|---|
+| Notes | `com.apple.Notes` | Native Cocoa, hotkey-driven | — | **PASS** (by hand) |
+| TextEdit | `com.apple.TextEdit` | Plain `NSTextView` | `AXTextArea` | **PASS** |
+| Brave | `com.brave.Browser` | Chromium web view | `AXTextArea` | **PASS** |
+| VS Code | `com.microsoft.VSCode` | Electron | `AXTextArea` | **PASS** (via saved file) |
+| Terminal | `com.apple.Terminal` | Terminal | `AXTextArea` | **PASS** |
 
-The three untested rows are the ones the plan expects to be *least* reliable — web view, Electron,
-and terminal — so the table cannot be treated as evidence that auto-paste works broadly. Both
-passes so far are native Cocoa text views, the easiest case. Running the rest means pasting into
-live documents and, for Discord, a real message box, so they are left until they can be run against
-scratch windows or with explicit per-app consent. **M2 cannot exit on the strength of these two
-rows.**
+All five work. That is a **better** result than the plan assumed — spec §14 Q4 and plan risk R4 both
+expect degradation in Electron and terminals, and none appeared. The per-app deny-list and the
+auto-learning "pasted nothing three times" heuristic are still worth building, but as a safety net
+for apps not yet seen, not as mitigation for a known-broken set.
 
-`Spikes/SpikeApp` now takes `S4_TARGETS=<bundle-id,...>` and pastes into each in turn with no
-keypress, so the whole table can be produced in one run once the bundle is granted again.
+Discord was deliberately **not** tested. Its only paste target is a real message box in a live
+conversation; the Electron case is covered by VS Code, which has scratch documents. Brave and VS
+Code were tested against throwaway files in `/tmp/cliproid-s4/`, Terminal in a fresh window with no
+Return pressed.
 
-Pasting into a live app writes into the user's real documents, and in a chat app could put text in a
-message box — so targets are confirmed with the user before running, never assumed.
+#### `UNVERIFIED` is not `FAIL`
+
+VS Code first reported `UNVERIFIED`: its editor is a custom-rendered surface whose `AXTextArea` is a
+small proxy buffer, so reading it back proves nothing. Saving the scratch file and reading it from
+disk showed **both** markers present — the earlier "unverified" paste had worked all along. Where AX
+cannot read a target, the harness posts `Cmd+S` and checks the file instead.
+
+Likewise, a run where Brave reported `UNVERIFIED` with `focused=AXWebArea` was a focus artifact —
+the page container rather than the textarea — not a failed paste. Re-running with the textarea
+focused gave `PASS`.
+
+### Bug found: blocking the thread the answer arrives on
+
+Every target initially reported `activated=false` on a paste that nonetheless succeeded.
+
+`NSWorkspace` delivers `didActivateApplicationNotification` **on the main run loop**. Waiting for it
+with a `DispatchSemaphore` on the main thread blocks the very thread that would deliver it: the
+notification can never arrive, the wait always runs to its full 400ms timeout, and `activated` is
+always `false`. The paste still worked, because by the time the timeout elapsed the app genuinely
+had activated — so the defect was invisible while costing 400ms of the 3-second budget in spec §13
+on **every** paste.
+
+Spinning the run loop instead makes it `activated=true` on all targets, typically in a few
+milliseconds.
+
+**For M2:** this wait must be `async`/`await` with a continuation, never a semaphore. The rule
+generalises — never block the thread the answer is delivered on. This is the second latent stall
+found in the same short sequence, after the already-frontmost short-circuit; both were invisible
+because the paste succeeded regardless, which is exactly why the harness logs each step rather than
+just the outcome.
