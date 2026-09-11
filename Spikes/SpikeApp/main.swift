@@ -1,0 +1,130 @@
+// Spikes S2 (hotkey firing) + S4 (paste round-trip), combined into one signed app bundle.
+//
+// They are combined because both need the same thing: a stable, signed bundle that TCC can hang an
+// Accessibility grant on. A bare executable cannot hold one reliably. This is also, deliberately,
+// the M2 walking skeleton — hotkey in, paste out — so what it proves carries straight into the app.
+//
+// Build:  Spikes/SpikeApp/build.sh
+// Run:    open .build/ClipRoidSpike.app   (then press Ctrl+Cmd+V in any app)
+import AppKit
+import Carbon.HIToolbox
+
+let log = { (s: String) in
+    FileHandle.standardError.write(Data(("[spike] " + s + "\n").utf8))
+}
+
+// MARK: - Layout-aware keycode for "v"
+
+/// kVK_ANSI_V is a physical key *position*. On Dvorak that position is not "v", so a paste posted
+/// with it delivers whatever else lives there. The spec raises layout-independence for shortcut
+/// detection and misses it for paste delivery; this is that gap.
+func keyCodeForV() -> CGKeyCode? {
+    guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+          let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+    else { return nil }
+    let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
+    return data.withUnsafeBytes { raw -> CGKeyCode? in
+        guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+        var dead: UInt32 = 0
+        for code in 0..<128 as Range<UInt16> {
+            var chars = [UniChar](repeating: 0, count: 4)
+            var length = 0
+            if UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+                              UInt32(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars) == noErr,
+               length == 1, chars[0] == UniChar(UnicodeScalar("v").value) {
+                return CGKeyCode(code)
+            }
+        }
+        return nil
+    }
+}
+
+func waitForModifiersToClear(timeout: TimeInterval = 0.3) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        let f = CGEventSource.flagsState(.combinedSessionState)
+        if !f.contains(.maskControl) && !f.contains(.maskAlternate) && !f.contains(.maskShift) {
+            return true
+        }
+        Thread.sleep(forTimeInterval: 0.015)
+    }
+    return false
+}
+
+final class Spike {
+    private var ref: EventHotKeyRef?
+    private var handler: EventHandlerRef?
+    var fireCount = 0
+
+    func start() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                 eventKind: UInt32(kEventHotKeyPressed))
+        let callback: EventHandlerUPP = { _, _, userData in
+            guard let userData else { return OSStatus(eventNotHandledErr) }
+            Unmanaged<Spike>.fromOpaque(userData).takeUnretainedValue().fired()
+            return noErr
+        }
+        let s1 = InstallEventHandler(GetEventDispatcherTarget(), callback, 1, &spec,
+                                     Unmanaged.passUnretained(self).toOpaque(), &handler)
+        let id = EventHotKeyID(signature: OSType(0x43_4C_52_44), id: 1)
+        let s2 = RegisterEventHotKey(UInt32(kVK_ANSI_V), UInt32(controlKey | cmdKey),
+                                     id, GetEventDispatcherTarget(), 0, &ref)
+        log("InstallEventHandler=\(s1) RegisterEventHotKey=\(s2)")
+        log("Accessibility trusted: \(AXIsProcessTrusted())")
+        log(s2 == noErr ? "READY — press Ctrl+Cmd+V in any app" : "FAILED to register hotkey")
+    }
+
+    func fired() {
+        fireCount += 1
+
+        // Step 1: capture the target BEFORE anything of ours can take focus. In the real app a
+        // window appears here; one frame later the frontmost app is ClipRoid and this is useless.
+        guard let target = NSWorkspace.shared.frontmostApplication else { return }
+        log("--- fire #\(fireCount): target = \(target.localizedName ?? "?") (pid \(target.processIdentifier))")
+
+        guard AXIsProcessTrusted() else {
+            log("    no Accessibility — clipboard-only fallback would run here (still useful)")
+            return
+        }
+        guard let vKey = keyCodeForV() else { log("    could not resolve 'v' keycode"); return }
+
+        let marker = "ClipRoid spike paste \(Int(Date().timeIntervalSince1970))"
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(marker, forType: .string)
+
+        // Step 2: wait for confirmed activation rather than sleeping a fixed amount.
+        let sem = DispatchSemaphore(value: 0)
+        let obs = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil
+        ) { note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if app?.processIdentifier == target.processIdentifier { sem.signal() }
+        }
+        target.activate(options: [])
+        let activated = sem.wait(timeout: .now() + 0.4) == .success
+        NSWorkspace.shared.notificationCenter.removeObserver(obs)
+
+        // Step 3: the user is probably still holding Ctrl+Cmd from the hotkey. Posting Cmd+V on top
+        // of a held Ctrl delivers Ctrl+Cmd+V to the target, which is a different command entirely.
+        let cleared = waitForModifiersToClear()
+        log("    activated=\(activated) modifiersCleared=\(cleared) vKey=\(vKey)")
+
+        guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
+        let magic: Int64 = 0x43_4C_52_44
+        let down = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: true)
+        down?.flags = .maskCommand
+        down?.setIntegerValueField(.eventSourceUserData, value: magic)
+        let up = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: false)
+        up?.setIntegerValueField(.eventSourceUserData, value: magic)
+        down?.post(tap: .cghidEventTap)
+        usleep(20_000)
+        up?.post(tap: .cghidEventTap)
+        log("    posted Cmd+V — target should now contain: \(marker)")
+    }
+}
+
+NSApplication.shared.setActivationPolicy(.accessory)
+let spike = Spike()
+spike.start()
+NSApplication.shared.run()
