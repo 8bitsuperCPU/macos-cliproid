@@ -2,12 +2,14 @@ import SwiftUI
 import AppKit
 import ClipRoidUI
 import ClipRoidKit
+import ClipRoidCore
 
 /// This file must not be named main.swift — SwiftPM treats that name as top-level code and @main
 /// then conflicts with it.
 @main
 struct ClipRoidApp: App {
     @State private var environment: AppEnvironment
+    @State private var quickPaste: QuickPastePanel?
 
     init() {
         // Set before anything else is built. A SwiftPM executable run via `swift run` has no
@@ -18,11 +20,33 @@ struct ClipRoidApp: App {
         _environment = State(initialValue: AppEnvironment())
     }
 
+    /// Builds the panel and points the hotkeys at it. Ordering matters: the callbacks have to be
+    /// in place before `registerHotKeys()`, or the first press goes nowhere.
+    @MainActor
+    private func installQuickPaste() {
+        guard quickPaste == nil else { return }
+        Diagnostics.log("Installing Quick Paste panel")
+        let model = QuickPasteViewModel(store: environment.store, coordinator: environment.paste)
+        let panel = QuickPastePanel(model: model) {
+            environment.paste.clearTarget()
+        }
+        quickPaste = panel
+
+        environment.onQuickPasteHotKey = { panel.toggle() }
+        environment.onRecentSlotHotKey = { slot in
+            Task { await environment.pasteRecentSlot(slot) }
+        }
+        environment.registerHotKeys()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(environment: environment)
                 .frame(minWidth: 420, minHeight: 320)
-                .task { await environment.start() }
+                .task {
+                    await environment.start()
+                    installQuickPaste()
+                }
         }
         .defaultSize(width: 520, height: 640)
         .commands {
@@ -30,6 +54,8 @@ struct ClipRoidApp: App {
         }
 
         MenuBarExtra("ClipRoid", systemImage: "doc.on.clipboard") {
+            Button("Quick Paste") { quickPaste?.show() }
+                .keyboardShortcut("v", modifiers: [.control, .command])
             Button("Open ClipRoid") {
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }

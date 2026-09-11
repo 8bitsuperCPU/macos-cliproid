@@ -244,6 +244,19 @@ public actor ClipStore {
 
     // MARK: - Search
 
+    /// Runs a parsed query. This is the entry point the Quick Paste window uses.
+    public func search(_ query: SearchQuery, limit: Int = 50) async throws -> [ClipSummary] {
+        // A shortcut is an exact lookup, not a search — typing ";welcome" should land on that one
+        // clip immediately rather than ranking it among fuzzy matches (spec §4.5).
+        if let shortcut = query.shortcut {
+            return try await db.query(
+                "SELECT \(Self.summaryColumns) FROM clips WHERE shortcut = ? LIMIT 1;",
+                [.text(shortcut)]).map(decodeSummary)
+        }
+        return try await runSearch(query, limit: limit)
+    }
+
+
     /// Full-text search across body, OCR text and title.
     ///
     /// Ranking is `bm25(clip_fts, 10.0, 3.0, 5.0)` — body 10, ocr_text 3, title 5. OCR text is
@@ -256,12 +269,25 @@ public actor ClipStore {
         _ text: String, types: Set<ClipContentType> = [], appBundleId: String? = nil,
         from: Date? = nil, to: Date? = nil, limit: Int = 50
     ) async throws -> [ClipSummary] {
-        let term = Self.ftsQuery(from: text)
+        var query = SearchQuery()
+        query.text = text
+        query.types = types
+        if let appBundleId { query.appTerms = [appBundleId] }
+        query.from = from
+        query.to = to
+        return try await runSearch(query, limit: limit)
+    }
+
+    private func runSearch(_ query: SearchQuery, limit: Int) async throws -> [ClipSummary] {
+        let types = query.types
+        let from = query.from
+        let to = query.to
+        let term = Self.ftsQuery(from: query.text)
 
         // With no free-text term there is nothing to MATCH against, so skip FTS entirely and let
         // the composite indexes serve the filters directly.
         guard let term else {
-            return try await filtered(types: types, appBundleId: appBundleId, from: from, to: to, limit: limit)
+            return try await filtered(query, limit: limit)
         }
 
         var sql = """
@@ -274,9 +300,13 @@ public actor ClipStore {
             sql += " AND c.content_type IN (\(types.map { _ in "?" }.joined(separator: ",")))"
             values += types.map { .int($0.rawValue) }
         }
-        if let appBundleId {
-            sql += " AND c.source_app_bundle_id = ?"
-            values.append(.text(appBundleId))
+        // The user types `@Safari`, not `@com.apple.Safari`, so an app term has to match either the
+        // bundle id or the human-readable name — and by prefix, since `@Xcode` should find
+        // `com.apple.dt.Xcode`.
+        for term in query.appTerms {
+            sql += " AND (c.source_app_bundle_id LIKE ? OR c.source_app_name LIKE ?)"
+            values.append(.text("%\(term)%"))
+            values.append(.text("%\(term)%"))
         }
         if let from {
             sql += " AND c.copied_at >= ?"
@@ -286,6 +316,8 @@ public actor ClipStore {
             sql += " AND c.copied_at <= ?"
             values.append(.date(to))
         }
+        if query.favoritesOnly { sql += " AND c.is_favorite = 1" }
+        if query.pinnedOnly { sql += " AND c.is_pinned = 1" }
         sql += " ORDER BY bm25(clip_fts, 10.0, 3.0, 5.0), c.copied_at DESC LIMIT ?;"
         values.append(.int(limit))
 
@@ -296,22 +328,25 @@ public actor ClipStore {
         return try await db.query(sql, values).map(decodeSummary)
     }
 
-    private func filtered(
-        types: Set<ClipContentType>, appBundleId: String?, from: Date?, to: Date?, limit: Int
-    ) async throws -> [ClipSummary] {
+    /// Chips-only queries skip FTS entirely — there is nothing to MATCH against, and the composite
+    /// `(filter, copied_at DESC)` indexes serve these directly with no sort step.
+    private func filtered(_ query: SearchQuery, limit: Int) async throws -> [ClipSummary] {
         var sql = "SELECT \(Self.summaryColumns) FROM clips WHERE 1=1"
         var values: [SQLValue] = []
-        if !types.isEmpty {
-            sql += " AND content_type IN (\(types.map { _ in "?" }.joined(separator: ",")))"
-            values += types.map { .int($0.rawValue) }
+        if !query.types.isEmpty {
+            sql += " AND content_type IN (\(query.types.map { _ in "?" }.joined(separator: ",")))"
+            values += query.types.map { .int($0.rawValue) }
         }
-        if let appBundleId {
-            sql += " AND source_app_bundle_id = ?"
-            values.append(.text(appBundleId))
+        for term in query.appTerms {
+            sql += " AND (source_app_bundle_id LIKE ? OR source_app_name LIKE ?)"
+            values.append(.text("%\(term)%"))
+            values.append(.text("%\(term)%"))
         }
-        if let from { sql += " AND copied_at >= ?"; values.append(.date(from)) }
-        if let to { sql += " AND copied_at <= ?"; values.append(.date(to)) }
-        sql += " ORDER BY copied_at DESC LIMIT ?;"
+        if let from = query.from { sql += " AND copied_at >= ?"; values.append(.date(from)) }
+        if let to = query.to { sql += " AND copied_at <= ?"; values.append(.date(to)) }
+        if query.favoritesOnly { sql += " AND is_favorite = 1" }
+        if query.pinnedOnly { sql += " AND is_pinned = 1" }
+        sql += " ORDER BY is_pinned DESC, copied_at DESC LIMIT ?;"
         values.append(.int(limit))
         return try await db.query(sql, values).map(decodeSummary)
     }

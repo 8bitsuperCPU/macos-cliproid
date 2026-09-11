@@ -143,6 +143,72 @@ func describeFocusedElement() -> String {
     return (role as? String) ?? "unknown"
 }
 
+
+// MARK: - M2 driver: exercise ClipRoid's own Quick Paste end to end
+
+/// Posts a chord, types a string, and presses Return — enough to drive ClipRoid's Quick Paste
+/// window from outside and time the §13 promise without a human at the keyboard.
+///
+/// This lives in the spike rather than the app because the spike is the bundle that holds the
+/// Accessibility grant needed to post synthetic events.
+func postChord(_ character: Character, flags: CGEventFlags) {
+    guard let src = CGEventSource(stateID: .combinedSessionState),
+          let key = keyCodeFor(character) else { return }
+    let down = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: true)
+    down?.flags = flags
+    let up = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: false)
+    down?.post(tap: .cghidEventTap)
+    usleep(30_000)
+    up?.post(tap: .cghidEventTap)
+}
+
+func typeString(_ text: String) {
+    guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
+    for ch in text {
+        // Unicode payload rather than keycodes: types correctly under any keyboard layout.
+        let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true)
+        let up = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)
+        var unit = Array(String(ch).utf16)
+        down?.keyboardSetUnicodeString(stringLength: unit.count, unicodeString: &unit)
+        up?.keyboardSetUnicodeString(stringLength: unit.count, unicodeString: &unit)
+        down?.post(tap: .cghidEventTap)
+        usleep(12_000)
+        up?.post(tap: .cghidEventTap)
+        usleep(18_000)
+    }
+}
+
+func postReturn() {
+    guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
+    let down = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Return), keyDown: true)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Return), keyDown: false)
+    down?.post(tap: .cghidEventTap)
+    usleep(30_000)
+    up?.post(tap: .cghidEventTap)
+}
+
+func keyCodeFor(_ character: Character) -> CGKeyCode? {
+    guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+          let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData),
+          let scalar = character.unicodeScalars.first
+    else { return nil }
+    let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
+    return data.withUnsafeBytes { raw -> CGKeyCode? in
+        guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+        var dead: UInt32 = 0
+        for code in 0..<128 as Range<UInt16> {
+            var chars = [UniChar](repeating: 0, count: 4)
+            var length = 0
+            if UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+                              UInt32(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars) == noErr,
+               length == 1, chars[0] == UniChar(scalar.value) {
+                return CGKeyCode(code)
+            }
+        }
+        return nil
+    }
+}
+
 final class Spike {
     private var ref: EventHotKeyRef?
     private var handler: EventHandlerRef?
@@ -257,6 +323,33 @@ let spike = Spike()
 
 // S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
 // Without it, arm the hotkey and wait, which is the S2 firing test.
+// M2_DRIVE=<search text> — open ClipRoid's Quick Paste, type, Enter, and time the whole thing.
+if let searchText = ProcessInfo.processInfo.environment["M2_DRIVE"] {
+    let target = ProcessInfo.processInfo.environment["M2_TARGET"] ?? "com.apple.TextEdit"
+    log("M2 driver: focusing \(target), then Ctrl+Cmd+V, typing \"\(searchText)\", Return")
+
+    if let app = NSRunningApplication.runningApplications(withBundleIdentifier: target).first {
+        app.activate(options: [])
+        Thread.sleep(forTimeInterval: 1.2)
+    }
+
+    let started = Date()
+    postChord("v", flags: [.maskControl, .maskCommand])
+    Thread.sleep(forTimeInterval: 0.6)
+    typeString(searchText)
+    Thread.sleep(forTimeInterval: 0.5)
+    postReturn()
+    Thread.sleep(forTimeInterval: 1.2)
+    log(String(format: "M2 driver: elapsed %.2fs", Date().timeIntervalSince(started)))
+    log("M2 driver: focused element now = \(describeFocusedElement())")
+    if let contents = readFocusedText() {
+        log("M2 driver: target contains \(contents.count) chars: \(contents.prefix(70))")
+    } else {
+        log("M2 driver: target exposes no readable text via AX")
+    }
+    exit(0)
+}
+
 let saveTargets = Set((ProcessInfo.processInfo.environment["S4_SAVE_TARGETS"] ?? "")
     .split(separator: ",").map(String.init))
 let saveProbePath = ProcessInfo.processInfo.environment["S4_SAVE_PROBE"] ?? ""
