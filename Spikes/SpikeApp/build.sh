@@ -2,7 +2,10 @@
 # Wraps the S2+S4 spike in a signed .app so TCC has a stable bundle to grant Accessibility to.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-APP="$ROOT/.build/ClipRoidSpike.app"
+# Visible, not .build/ — System Settings' app picker hides dotfile directories, and this bundle
+# exists specifically to be granted Accessibility by hand.
+mkdir -p "$ROOT/dist"
+APP="$ROOT/dist/ClipRoidSpike.app"
 BUNDLE_ID="dev.philtronic.ClipRoidSpike"
 
 rm -rf "$APP"

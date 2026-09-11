@@ -69,9 +69,15 @@ if [[ ! -x "$EXECUTABLE" ]]; then
     exit 1
 fi
 
-# A stable output path, deliberately. TCC keys grants on the bundle path as well as its signature,
-# so building into a mktemp directory would hand back a fresh set of permission prompts each time.
-APP="$ROOT/.build/$APP_NAME.app"
+# A stable output path, deliberately, and a *visible* one.
+#
+# Two reasons it is not .build/. TCC keys grants on the bundle path as well as its signature, so the
+# location has to stay put or every move costs a fresh round of permission prompts. And .build is a
+# dotfile: System Settings' "add an app" picker hides it, so granting Accessibility to something in
+# there means fighting the file panel. dist/ is visible, stable, and gitignored.
+DIST="$ROOT/dist"
+mkdir -p "$DIST"
+APP="$DIST/$APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$APP_NAME"
@@ -140,7 +146,7 @@ if [[ "$NOTARIZE" -eq 1 ]]; then
     codesign --force --options runtime --timestamp \
         --sign "$DEVELOPER_ID" "$APP"
 
-    ZIP="$ROOT/.build/$APP_NAME-$VERSION.zip"
+    ZIP="$DIST/$APP_NAME-$VERSION.zip"
     ditto -c -k --keepParent "$APP" "$ZIP"
     echo "Submitting to notarytool (this waits for the result)..."
     xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait

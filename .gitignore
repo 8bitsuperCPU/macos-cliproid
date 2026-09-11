@@ -3,3 +3,4 @@
 *.xcodeproj
 spec.md.orig
 .swiftpm/
+dist/
