@@ -15,6 +15,8 @@ public final class AppEnvironment {
     public let pasteboard: SystemPasteboard
     public let poller: PasteboardPoller
     public let capture: CaptureCoordinator
+    public let enrichment: EnrichmentPipeline
+    public let retention: RetentionSweeper
 
     /// App Nap will throttle a background app's timers, which for this app means silently missing
     /// clips. The token returned by `beginActivity` must be **retained** — dropping it ends the
@@ -41,6 +43,8 @@ public final class AppEnvironment {
         self.pasteboard = pasteboard
         self.poller = poller
         self.capture = CaptureCoordinator(poller: poller, store: store)
+        self.enrichment = EnrichmentPipeline(store: store, recognizer: VisionTextRecognizer())
+        self.retention = RetentionSweeper(store: store)
     }
 
     public func start() async {
@@ -50,16 +54,31 @@ public final class AppEnvironment {
             logger.error("Could not open store: \(error.localizedDescription, privacy: .public)")
             return
         }
+        // `.userInitiatedAllowingIdleSystemSleep`, deliberately, NOT `.userInitiated`.
+        //
+        // `.userInitiated` implies `.idleSystemSleepDisabled`, which stops the Mac sleeping for as
+        // long as the app runs — visible in `pmset -g assertions` as a PreventUserIdleSystemSleep
+        // assertion. For a clipboard manager that sits in the background all day that is indefensible:
+        // it would silently cost the user hours of battery and keep their machine awake overnight.
+        //
+        // What is actually needed is only the App Nap half — without an activity assertion the
+        // system throttles a background app's timers and the poller starts missing clips. This
+        // option gives exactly that and lets the machine sleep normally. Nothing needs capturing
+        // while the Mac is asleep, because nothing can be copied.
         activityToken = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .idleSystemSleepDisabled],
+            options: [.userInitiatedAllowingIdleSystemSleep],
             reason: "Monitoring the clipboard for new clips"
         )
         let count = await pasteboard.changeCount
         await poller.seed(changeCount: count)
         await capture.start()
+        await enrichment.start()
+        await retention.start()
     }
 
     public func stop() async {
+        await retention.stop()
+        await enrichment.stop()
         await capture.stop()
         await store.close()
         if let token = activityToken {

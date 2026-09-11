@@ -213,3 +213,98 @@ struct FTSTests {
         await db.close()
     }
 }
+
+@Suite("Search")
+struct SearchTests {
+    private func open(_ scratch: ScratchDirectory) async throws -> ClipStore {
+        let store = ClipStore.makeDefault(root: scratch.url)
+        try await store.open(backupDirectory: nil)
+        return store
+    }
+
+    private func text(_ body: String, type: ClipContentType = .text, app: String? = nil) -> CapturedClip {
+        CapturedClip(contentType: type, contentHash: Dedupe.hash(body + (app ?? "")),
+                     body: body, sourceAppBundleId: app)
+    }
+
+    @Test("Free-text search matches body content")
+    func matchesBody() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        try await store.insert(text("the quarterly dashboard numbers"))
+        try await store.insert(text("unrelated content"))
+        #expect(try await store.search("dashboard").count == 1)
+        await store.close()
+    }
+
+    @Test("Prefix matching supports search-as-you-type")
+    func prefixMatches() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        try await store.insert(text("authentication middleware"))
+        #expect(try await store.search("auth").count == 1)
+        await store.close()
+    }
+
+    /// FTS5 treats `"`, `*`, `:`, `^`, `-`, `(`, `)` and NEAR as operators. Unquoted user input
+    /// containing any of them is a SQLite syntax error, not a search — which in a search-as-you-type
+    /// field means the results vanish the moment someone types a colon.
+    @Test("Punctuation in the query does not blow up the search", arguments: [
+        "foo:bar", "-", "\"", "a*b", "NEAR", "(", "c++", "what?!", "user@example.com",
+    ])
+    func toleratesPunctuation(query: String) async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        try await store.insert(text("some ordinary content"))
+        // The assertion is that this does not throw.
+        _ = try await store.search(query)
+        await store.close()
+    }
+
+    @Test("An empty query falls back to filters rather than failing")
+    func emptyQueryFallsBack() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        try await store.insert(text("one"))
+        try await store.insert(text("two", type: .code))
+        #expect(try await store.search("").count == 2)
+        #expect(try await store.search("", types: [.code]).count == 1)
+        await store.close()
+    }
+
+    @Test("App filtering is an exact predicate, not a text match")
+    func filtersByApp() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        try await store.insert(text("shared term", app: "com.apple.Safari"))
+        try await store.insert(text("shared term", app: "com.apple.dt.Xcode"))
+        let hits = try await store.search("shared", appBundleId: "com.apple.Safari")
+        #expect(hits.count == 1)
+        #expect(hits.first?.sourceAppBundleId == "com.apple.Safari")
+        await store.close()
+    }
+
+    /// source_app_name is deliberately not an FTS column. If it were, every clip copied from Safari
+    /// would match a free-text search for "safari", which is never what the user meant.
+    @Test("Searching an app name does not match every clip from that app")
+    func appNameIsNotIndexed() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        var clip = text("nothing to do with browsers", app: "com.apple.Safari")
+        clip.sourceAppName = "Safari"
+        try await store.insert(clip)
+        #expect(try await store.search("Safari").isEmpty)
+        await store.close()
+    }
+
+    @Test("Type filters compose with a free-text term")
+    func filtersByType() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        try await store.insert(text("deployment script", type: .code))
+        try await store.insert(text("deployment notes", type: .text))
+        #expect(try await store.search("deployment").count == 2)
+        #expect(try await store.search("deployment", types: [.code]).count == 1)
+        await store.close()
+    }
+}

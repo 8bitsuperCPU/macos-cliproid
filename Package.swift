@@ -89,7 +89,8 @@ let package = Package(
         .testTarget(name: "ClipRoidCoreTests", dependencies: ["ClipRoidCore"]),
         .testTarget(name: "ClipRoidImagingTests", dependencies: ["ClipRoidImaging"]),
         .testTarget(name: "ClipRoidStoreTests", dependencies: ["ClipRoidStore", "ClipRoidCore"]),
-        .testTarget(name: "ClipRoidKitTests", dependencies: ["ClipRoidKit", "ClipRoidCore"]),
+        .testTarget(name: "ClipRoidKitTests",
+                    dependencies: ["ClipRoidKit", "ClipRoidCore", "ClipRoidStore", "ClipRoidPlatform", "ClipRoidImaging"]),
         .testTarget(name: "ClipRoidUITests", dependencies: ["ClipRoidUI"]),
     ]
 )

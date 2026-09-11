@@ -168,6 +168,12 @@ public actor ClipStore {
     sensitivity, thumb_blob_path, color_hex, shortcut
     """
 
+    /// The same columns qualified for the FTS join, where `clips` is aliased to `c`.
+    private static let aliasedSummaryColumns = summaryColumns
+        .split(separator: ",")
+        .map { "c.\($0.trimmingCharacters(in: .whitespacesAndNewlines))" }
+        .joined(separator: ", ")
+
     private func decodeSummary(_ row: Row) -> ClipSummary {
         ClipSummary(
             id: row.int64(0),
@@ -232,6 +238,212 @@ public actor ClipStore {
 
     public func count() async throws -> Int {
         try await db.query("SELECT COUNT(*) FROM clips;").first?.int(0) ?? 0
+    }
+
+
+
+    // MARK: - Search
+
+    /// Full-text search across body, OCR text and title.
+    ///
+    /// Ranking is `bm25(clip_fts, 10.0, 3.0, 5.0)` — body 10, ocr_text 3, title 5. OCR text is
+    /// weighted lowest because it is noisy: a screenshot that happens to contain the word should
+    /// not outrank a clip whose actual content is that word.
+    ///
+    /// `bm25()` returns *negative* scores where more negative is better, so plain ascending order
+    /// is correct. This reads like a bug and is not one.
+    public func search(
+        _ text: String, types: Set<ClipContentType> = [], appBundleId: String? = nil,
+        from: Date? = nil, to: Date? = nil, limit: Int = 50
+    ) async throws -> [ClipSummary] {
+        let term = Self.ftsQuery(from: text)
+
+        // With no free-text term there is nothing to MATCH against, so skip FTS entirely and let
+        // the composite indexes serve the filters directly.
+        guard let term else {
+            return try await filtered(types: types, appBundleId: appBundleId, from: from, to: to, limit: limit)
+        }
+
+        var sql = """
+        SELECT \(Self.summaryColumns) FROM clip_fts f JOIN clips c ON c.id = f.rowid
+        WHERE clip_fts MATCH ?
+        """
+        var values: [SQLValue] = [.text(term)]
+
+        if !types.isEmpty {
+            sql += " AND c.content_type IN (\(types.map { _ in "?" }.joined(separator: ",")))"
+            values += types.map { .int($0.rawValue) }
+        }
+        if let appBundleId {
+            sql += " AND c.source_app_bundle_id = ?"
+            values.append(.text(appBundleId))
+        }
+        if let from {
+            sql += " AND c.copied_at >= ?"
+            values.append(.date(from))
+        }
+        if let to {
+            sql += " AND c.copied_at <= ?"
+            values.append(.date(to))
+        }
+        sql += " ORDER BY bm25(clip_fts, 10.0, 3.0, 5.0), c.copied_at DESC LIMIT ?;"
+        values.append(.int(limit))
+
+        // The joined query selects from `clips` aliased as c, so the shared column list needs the
+        // alias applied.
+        sql = sql.replacingOccurrences(of: "SELECT \(Self.summaryColumns) FROM clip_fts",
+                                       with: "SELECT \(Self.aliasedSummaryColumns) FROM clip_fts")
+        return try await db.query(sql, values).map(decodeSummary)
+    }
+
+    private func filtered(
+        types: Set<ClipContentType>, appBundleId: String?, from: Date?, to: Date?, limit: Int
+    ) async throws -> [ClipSummary] {
+        var sql = "SELECT \(Self.summaryColumns) FROM clips WHERE 1=1"
+        var values: [SQLValue] = []
+        if !types.isEmpty {
+            sql += " AND content_type IN (\(types.map { _ in "?" }.joined(separator: ",")))"
+            values += types.map { .int($0.rawValue) }
+        }
+        if let appBundleId {
+            sql += " AND source_app_bundle_id = ?"
+            values.append(.text(appBundleId))
+        }
+        if let from { sql += " AND copied_at >= ?"; values.append(.date(from)) }
+        if let to { sql += " AND copied_at <= ?"; values.append(.date(to)) }
+        sql += " ORDER BY copied_at DESC LIMIT ?;"
+        values.append(.int(limit))
+        return try await db.query(sql, values).map(decodeSummary)
+    }
+
+    /// Turns user input into an FTS5 MATCH expression.
+    ///
+    /// Every token is quoted, because FTS5's query syntax treats `"`, `*`, `:`, `^`, `-`, `(`, `)`
+    /// and `NEAR` as operators — so a user searching for `foo:bar` or a lone `-` gets a syntax
+    /// error from SQLite rather than a search. Quoting makes the input inert, and a trailing `*` is
+    /// then added deliberately for prefix matching so search-as-you-type still works.
+    static func ftsQuery(from text: String) -> String? {
+        let tokens = text
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return nil }
+        return tokens
+            .map { "\"\($0)\"" + ($0.count >= 2 ? "*" : "") }
+            .joined(separator: " ")
+    }
+
+    // MARK: - Enrichment
+
+    /// A clip awaiting asynchronous work: a thumbnail, OCR text, a link title.
+    public struct EnrichmentJob: Sendable {
+        public var id: Int64
+        public var uuid: UUID
+        public var contentType: ClipContentType
+        public var imageBlobPath: String?
+        public var linkUrl: String?
+    }
+
+    /// The backlog, served by `idx_clips_pending` — a partial index over `enrichment_state = 0`, so
+    /// this stays cheap however large the table grows.
+    public func pendingEnrichment(limit: Int = 20) async throws -> [EnrichmentJob] {
+        try await db.query(
+            """
+            SELECT id, uuid, content_type, image_blob_path, link_url
+            FROM clips WHERE enrichment_state = 0 ORDER BY id DESC LIMIT ?;
+            """, [.int(limit)]
+        ).map { row in
+            EnrichmentJob(
+                id: row.int64(0),
+                uuid: UUID(uuidString: row.string(1) ?? "") ?? UUID(),
+                contentType: ClipContentType(rawValue: row.int(2)) ?? .unknown,
+                imageBlobPath: row.string(3),
+                linkUrl: row.string(4)
+            )
+        }
+    }
+
+    public func imageData(forBlobPath path: String) async -> Data? {
+        await blobs.read(relativePath: path)
+    }
+
+    public func writeThumbnail(_ data: Data, uuid: UUID) async throws -> String {
+        try await blobs.write(data, uuid: uuid, ext: "thumb.png", maxBytes: SizeLimits.maxCaptureBytesCeiling)
+    }
+
+    /// Applies the result of enrichment to one row.
+    ///
+    /// `ocr_text` is an FTS-indexed column, so this UPDATE is seen by the `clips_au` trigger and the
+    /// index is rewritten for this row only. That is the whole reason OCR can land minutes after
+    /// capture and still become searchable without a reindex.
+    public func applyEnrichment(
+        id: Int64, ocrText: String?, thumbnailPath: String?, title: String?, state: EnrichmentState
+    ) async throws {
+        try await db.run(
+            """
+            UPDATE clips SET
+              ocr_text = COALESCE(?, ocr_text),
+              thumb_blob_path = COALESCE(?, thumb_blob_path),
+              title = COALESCE(?, title),
+              enrichment_state = ?
+            WHERE id = ?;
+            """,
+            [.optional(ocrText), .optional(thumbnailPath), .optional(title),
+             .int(state.rawValue), .int(id)]
+        )
+        if let summary = try await summary(id: id) {
+            publish(.updated(summary))
+        }
+    }
+
+    public func setImageDimensions(id: Int64, width: Int, height: Int) async throws {
+        // Not an FTS column, so this deliberately does not touch the index.
+        try await db.run(
+            "UPDATE clips SET image_width = ?, image_height = ? WHERE id = ?;",
+            [.int(width), .int(height), .int(id)])
+    }
+
+    // MARK: - Retention
+
+    /// Applies a retention policy, returning the ids removed.
+    ///
+    /// Evaluation happens in `ClipRoidCore` on plain values rather than in SQL: the rules involve
+    /// pins, favourites, a count budget and two different clocks, and they are far easier to get
+    /// right — and to test — as a pure function than as a DELETE with four subqueries.
+    @discardableResult
+    public func applyRetention(policy: RetentionPolicy, now: Date = Date()) async throws -> [Int64] {
+        guard !policy.isUnlimited else { return [] }
+
+        let candidates = try await db.query(
+            "SELECT id, copied_at, is_pinned, is_favorite, sensitivity FROM clips;"
+        ).map { row in
+            RetentionEvaluator.Candidate(
+                id: row.int64(0),
+                copiedAt: row.date(1) ?? Date(),
+                isPinned: row.bool(2),
+                isFavorite: row.bool(3),
+                sensitivity: Sensitivity(rawValue: row.int(4)) ?? .none
+            )
+        }
+
+        let doomed = RetentionEvaluator.idsToPurge(candidates: candidates, policy: policy, now: now)
+        guard !doomed.isEmpty else { return [] }
+
+        // Chunked so one sweep of a large history cannot hold a write lock for an unbounded time,
+        // and so the UI keeps getting delete deltas as it progresses.
+        for chunk in stride(from: 0, to: doomed.count, by: 500) {
+            let slice = Array(doomed[chunk..<min(chunk + 500, doomed.count)])
+            try await delete(ids: slice)
+            await Task.yield()
+        }
+
+        // FTS5 leaves its index fragmented after bulk deletes; this compacts it.
+        try? await db.execute("INSERT INTO clip_fts(clip_fts) VALUES('optimize');")
+        return doomed
+    }
+
+    /// Surfaced in Settings so the user can see what the history is costing them (spec §4.19).
+    public func storageSizeBytes() async -> Int64 {
+        await blobs.totalSizeBytes()
     }
 
     // MARK: - Delete

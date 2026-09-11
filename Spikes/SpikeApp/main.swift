@@ -113,17 +113,29 @@ final class Spike {
         pb.clearContents()
         pb.setString(marker, forType: .string)
 
-        // Step 2: wait for confirmed activation rather than sleeping a fixed amount.
-        let sem = DispatchSemaphore(value: 0)
-        let obs = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil
-        ) { note in
-            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            if app?.processIdentifier == target.processIdentifier { sem.signal() }
+        // Step 2: wait for confirmed activation rather than sleeping a fixed amount — but only
+        // when activation is actually changing.
+        //
+        // didActivateApplicationNotification fires on a *change* of active app. If the target is
+        // already frontmost, no notification can ever arrive, and waiting burns the full timeout
+        // for nothing. That is the common case for a hotkey-driven paste, because the user is
+        // typing into the app they want to paste into. The paste still succeeds, so the cost is
+        // invisible — 400ms of the 3-second budget in spec §13, on every paste.
+        let activated: Bool
+        if target.isActive {
+            activated = true
+        } else {
+            let sem = DispatchSemaphore(value: 0)
+            let obs = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil
+            ) { note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                if app?.processIdentifier == target.processIdentifier { sem.signal() }
+            }
+            target.activate(options: [])
+            activated = sem.wait(timeout: .now() + 0.4) == .success
+            NSWorkspace.shared.notificationCenter.removeObserver(obs)
         }
-        target.activate(options: [])
-        let activated = sem.wait(timeout: .now() + 0.4) == .success
-        NSWorkspace.shared.notificationCenter.removeObserver(obs)
 
         // Step 3: the user is probably still holding Ctrl+Cmd from the hotkey. Posting Cmd+V on top
         // of a held Ctrl delivers Ctrl+Cmd+V to the target, which is a different command entirely.
