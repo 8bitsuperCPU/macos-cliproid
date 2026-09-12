@@ -407,6 +407,22 @@ public actor ClipStore {
         await blobs.absoluteURL(relativePath: relativePath)
     }
 
+    /// Text Vision recognised inside an image (spec §4.8).
+    ///
+    /// Populated asynchronously by the enrichment pipeline, so a very recently captured screenshot
+    /// may not have it yet — callers should be able to ask for it to be produced on demand rather
+    /// than reporting "no text" when the answer is really "not yet".
+    public func ocrText(forClip id: Int64) async throws -> String? {
+        let text = try await db.query(
+            "SELECT ocr_text FROM clips WHERE id = ?;", [.int(id)]).first?.string(0)
+        return (text?.isEmpty ?? true) ? nil : text
+    }
+
+    public func imageBlobPath(forClip id: Int64) async throws -> String? {
+        try await db.query(
+            "SELECT image_blob_path FROM clips WHERE id = ?;", [.int(id)]).first?.string(0)
+    }
+
     public func imageData(forBlobPath path: String) async -> Data? {
         await blobs.read(relativePath: path)
     }

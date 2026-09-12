@@ -80,7 +80,7 @@ struct ClipRoidApp: App {
         guard shelf == nil else { return }
         let model = ShelfViewModel(
             store: environment.store, coordinator: environment.paste,
-            settings: environment.settings)
+            settings: environment.settings, enrichment: environment.enrichment)
         model.openLibrary = { NSApplication.shared.activate(ignoringOtherApps: true) }
         let panel = ShelfPanel(model: model, settings: environment.settings)
         shelf = panel

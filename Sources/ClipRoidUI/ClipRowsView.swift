@@ -146,6 +146,13 @@ struct ClipContextMenu: View {
             model.loadIntoClipboard(clip)
         }
 
+        // Only for images — for anything else the clip already *is* text.
+        if clip.contentType == .image || clip.contentType == .screenshot {
+            Button("Copy Text from Image", systemImage: "text.viewfinder") {
+                model.copyTextFromImage(clip)
+            }
+        }
+
         if clip.colorHex != nil {
             Menu("Load Colour As") {
                 ForEach(ColorFormats.allCases, id: \.self) { format in

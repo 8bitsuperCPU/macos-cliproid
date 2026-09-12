@@ -211,4 +211,3 @@ struct RuleEditor: View {
     }
 }
 
-extension SmartFilterRule: @retroactive Identifiable {}

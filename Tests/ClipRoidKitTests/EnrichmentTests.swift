@@ -177,3 +177,89 @@ struct RetentionSweeperTests {
         await store.close()
     }
 }
+
+@Suite("Copy text from image")
+struct CopyTextFromImageTests {
+    private func makePNG() throws -> Data {
+        let ctx = try #require(CGContext(
+            data: nil, width: 120, height: 80, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+        let image = try #require(ctx.makeImage())
+        return try #require(Thumbnailer.encodePNG(image))
+    }
+
+    private func open(_ scratch: ScratchDirectory) async throws -> ClipStore {
+        let store = ClipStore.makeDefault(root: scratch.url)
+        try await store.open(backupDirectory: nil)
+        return store
+    }
+
+    private func imageClip(_ data: Data) -> CapturedClip {
+        CapturedClip(contentType: .screenshot, contentHash: Dedupe.hash(data),
+                     contentSizeBytes: Int64(data.count), imageData: data,
+                     enrichmentState: .pending)
+    }
+
+    /// A screenshot taken seconds ago has not reached the enrichment queue, so asking for its text
+    /// must recognise it there and then rather than reporting that it has none.
+    @Test("Text is recognised on demand when enrichment has not run yet")
+    func recognisesOnDemand() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let pipeline = EnrichmentPipeline(
+            store: store, recognizer: StubRecognizer(result: "Connection refused"))
+
+        let summary = try await store.insert(imageClip(try makePNG()))
+        #expect(try await store.ocrText(forClip: summary.id) == nil, "nothing recognised yet")
+
+        let text = await pipeline.recognizeTextNow(clipId: summary.id)
+        #expect(text == "Connection refused")
+        await store.close()
+    }
+
+    /// The result is written back, so asking twice does not run Vision twice.
+    @Test("A second request reuses the stored result")
+    func cachesResult() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let pipeline = EnrichmentPipeline(
+            store: store, recognizer: StubRecognizer(result: "first pass"))
+
+        let summary = try await store.insert(imageClip(try makePNG()))
+        _ = await pipeline.recognizeTextNow(clipId: summary.id)
+        #expect(try await store.ocrText(forClip: summary.id) == "first pass")
+
+        // A recognizer that would throw if it ran again: the stored value must be used instead.
+        let second = EnrichmentPipeline(
+            store: store, recognizer: StubRecognizer(error: RecognizerFailure()))
+        #expect(await second.recognizeTextNow(clipId: summary.id) == "first pass")
+        await store.close()
+    }
+
+    @Test("An image with no text returns nil rather than an empty string")
+    func noTextFound() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let pipeline = EnrichmentPipeline(store: store, recognizer: StubRecognizer(result: nil))
+        let summary = try await store.insert(imageClip(try makePNG()))
+        #expect(await pipeline.recognizeTextNow(clipId: summary.id) == nil)
+        await store.close()
+    }
+
+    @Test("Recognised text also becomes searchable")
+    func feedsTheIndex() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let pipeline = EnrichmentPipeline(
+            store: store, recognizer: StubRecognizer(result: "invoice 4471"))
+        let summary = try await store.insert(imageClip(try makePNG()))
+
+        _ = await pipeline.recognizeTextNow(clipId: summary.id)
+
+        #expect(try await store.search("4471").map(\.id) == [summary.id])
+        await store.close()
+    }
+}

@@ -153,6 +153,18 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("Hover preview") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Slider(value: $settings.previewHeightFraction, in: 0.25...0.85, step: 0.05) {
+                        Text("Height")
+                    }
+                    Text("\(Int(settings.previewHeightFraction * 100))% of the screen height")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Hovering a card opens a preview. Click it to keep it open; it then stays until you close it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Background") {
                 Picker("Style", selection: $settings.shelfBackground) {
                     ForEach(ShelfBackground.allCases, id: \.self) { style in

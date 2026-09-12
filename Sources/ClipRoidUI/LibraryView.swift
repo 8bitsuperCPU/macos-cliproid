@@ -18,7 +18,8 @@ public struct LibraryView: View {
 
     public init(store: ClipStore, environment: AppEnvironment) {
         _model = State(initialValue: LibraryViewModel(
-            store: store, coordinator: environment.paste, editor: environment.externalEditor))
+            store: store, coordinator: environment.paste, editor: environment.externalEditor,
+            enrichment: environment.enrichment))
         self.environment = environment
     }
 

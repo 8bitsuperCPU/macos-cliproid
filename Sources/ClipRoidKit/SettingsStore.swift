@@ -45,6 +45,8 @@ public final class SettingsStore {
             defaults.object(forKey: Key.collapsedLength) as? Double ?? 264)
         self.collapsedRainbow = defaults.bool(forKey: Key.collapsedRainbow)
         self.shelfTextStyleRaw = defaults.string(forKey: Key.shelfTextStyle) ?? "automatic"
+        self.storedPreviewHeightFraction = Self.clampPreviewFraction(
+            defaults.object(forKey: Key.previewHeightFraction) as? Double ?? 0.5)
     }
 
     private enum Key {
@@ -71,6 +73,7 @@ public final class SettingsStore {
         static let collapsedLength = "shelf.collapsed.length"
         static let collapsedRainbow = "shelf.collapsed.rainbow"
         static let shelfTextStyle = "shelf.textStyle"
+        static let previewHeightFraction = "shelf.preview.heightFraction"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -231,6 +234,28 @@ public final class SettingsStore {
 
     public nonisolated static func clampCollapsedLength(_ value: Double) -> Double {
         min(max(value, 60), 900)
+    }
+
+    /// Preview window height, as a fraction of the screen.
+    ///
+    /// A fraction rather than a point size so the preview is proportionate on a laptop display and
+    /// on a 34-inch monitor alike, instead of being either cramped or absurd on one of them.
+    @ObservationIgnored private var storedPreviewHeightFraction: Double
+    public var previewHeightFraction: Double {
+        get {
+            access(keyPath: \.previewHeightFraction)
+            return storedPreviewHeightFraction
+        }
+        set {
+            withMutation(keyPath: \.previewHeightFraction) {
+                storedPreviewHeightFraction = Self.clampPreviewFraction(newValue)
+                defaults.set(storedPreviewHeightFraction, forKey: Key.previewHeightFraction)
+            }
+        }
+    }
+
+    public nonisolated static func clampPreviewFraction(_ value: Double) -> Double {
+        min(max(value, 0.25), 0.85)
     }
 
     /// An animated gradient on the collapsed bar.

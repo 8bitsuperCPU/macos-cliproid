@@ -48,6 +48,24 @@ public actor EnrichmentPipeline {
         task = nil
     }
 
+    /// Recognises text in one clip's image immediately, for the "Copy Text" action.
+    ///
+    /// Enrichment normally does this in the background, but a user who right-clicks a screenshot
+    /// seconds after taking it should not be told there is no text when the truth is that the queue
+    /// has not reached it yet. The result is written back, so the work is not repeated.
+    public func recognizeTextNow(clipId: Int64) async -> String? {
+        if let existing = try? await store.ocrText(forClip: clipId) {
+            return existing
+        }
+        guard let path = try? await store.imageBlobPath(forClip: clipId),
+              let data = await store.imageData(forBlobPath: path) else { return nil }
+        guard let text = try? await recognizer.recognizeText(in: data) else { return nil }
+
+        try? await store.applyEnrichment(
+            id: clipId, ocrText: text, thumbnailPath: nil, title: nil, state: .done)
+        return text
+    }
+
     /// Exposed so tests can run the pipeline deterministically rather than racing a background loop.
     @discardableResult
     public func drainOnce(limit: Int = 10) async -> Int {

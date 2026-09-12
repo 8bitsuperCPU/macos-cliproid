@@ -1,16 +1,20 @@
 import SwiftUI
 import ClipRoidCore
+import ClipRoidKit
 
 /// One clip in the shelf.
 struct ShelfCard: View {
     let clip: ClipSummary
     @Bindable var model: ShelfViewModel
+    @Bindable var settings: SettingsStore
     var size: CGSize
     /// Which way the preview should open, so it does not open off-screen.
     var previewEdge: Edge = .bottom
 
     @State private var isHovered = false
     @State private var showPreview = false
+    /// A clicked preview stays until dismissed, rather than vanishing when the pointer wanders.
+    @State private var isPreviewPinned = false
     @State private var hoverTask: Task<Void, Never>?
     @State private var thumbnailURL: URL?
     @State private var preview = ""
@@ -33,7 +37,8 @@ struct ShelfCard: View {
             isHovered = inside
             hoverTask?.cancel()
             guard inside else {
-                showPreview = false
+                // A pinned preview survives the pointer leaving; that is the whole point of it.
+                if !isPreviewPinned { showPreview = false }
                 return
             }
             // A short delay, so sweeping the pointer across the shelf to reach one card does not
@@ -45,7 +50,19 @@ struct ShelfCard: View {
             }
         }
         .popover(isPresented: $showPreview, arrowEdge: previewEdge) {
-            ShelfPreview(clip: clip, model: model)
+            ShelfPreview(
+                clip: clip, model: model, settings: settings,
+                isPinned: isPreviewPinned,
+                onPin: { isPreviewPinned = true },
+                onClose: {
+                    isPreviewPinned = false
+                    showPreview = false
+                })
+        }
+        .onChange(of: showPreview) { _, shown in
+            // Dismissing by clicking outside must clear the pin too, or the next hover reopens a
+            // preview that is still marked pinned and can never be closed by leaving.
+            if !shown { isPreviewPinned = false }
         }
         .onTapGesture { model.paste(clip) }
         .draggable(clip.displayText)
@@ -158,6 +175,11 @@ struct ShelfCardMenu: View {
         }
         Divider()
         Button("Copy", systemImage: "doc.on.doc") { model.copyOnly(clip) }
+        if clip.contentType == .image || clip.contentType == .screenshot {
+            Button("Copy Text from Image", systemImage: "text.viewfinder") {
+                model.copyTextFromImage(clip)
+            }
+        }
         Button("Paste", systemImage: "arrow.down.doc") { model.paste(clip) }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { model.delete(clip) }
@@ -166,70 +188,177 @@ struct ShelfCardMenu: View {
 
 /// The expanded preview shown when the pointer rests on a card (spec §4.3).
 ///
-/// Worth having even though the card itself shows a preview: the card is a fixed size and clips
-/// long text to a few lines, whereas this shows the clip at a size you can actually read, the full
-/// image rather than a cropped fill, and the colour's value alongside its swatch.
+/// Sized as a fraction of the screen rather than a fixed point size, so it is proportionate on a
+/// laptop display and on a 34-inch monitor alike.
 struct ShelfPreview: View {
     let clip: ClipSummary
     @Bindable var model: ShelfViewModel
+    @Bindable var settings: SettingsStore
+    /// Set once the user clicks: the preview then stays until they dismiss it.
+    var isPinned: Bool
+    var onPin: () -> Void
+    var onClose: () -> Void
 
     @State private var thumbnailURL: URL?
     @State private var fullText = ""
+    @State private var ocrText: String?
+
+    private var height: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 900
+        return screen * CGFloat(settings.previewHeightFraction)
+    }
+
+    private var width: CGFloat { min(height * 1.25, 900) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                AppIcon(bundleId: clip.sourceAppBundleId, side: 14)
-                Text(clip.sourceAppName ?? "Unknown").font(.caption.weight(.medium))
-                Spacer()
-                ClipTimestamp(date: clip.copiedAt, font: .caption2)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            header
+            Divider()
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            footer
+        }
+        .padding(14)
+        .frame(width: width, height: height)
+        // A click anywhere pins the preview, so it survives the pointer leaving the card.
+        .contentShape(Rectangle())
+        .onTapGesture { onPin() }
+        .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) { await load() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            AppIcon(bundleId: clip.sourceAppBundleId, side: 15)
+            Text(clip.sourceAppName ?? "Unknown").font(.callout.weight(.medium))
+
+            badge(clip.contentType.displayName)
+            if let size = clip.imageSize {
+                badge("\(size.width) × \(size.height)")
+            }
+            if clip.contentSizeBytes > 0 {
+                badge(ByteCountFormatter.string(
+                    fromByteCount: clip.contentSizeBytes, countStyle: .file))
             }
 
-            if clip.sensitivity == .secret {
-                Label("Hidden — this looks like a secret", systemImage: "eye.slash")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if let hex = clip.colorHex, let colour = Color(hex: hex) {
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 6).fill(colour).frame(width: 52, height: 52)
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(ColorFormats.allCases, id: \.self) { format in
-                            if let text = ColorFormats.string(format, fromHex: hex) {
-                                Text(text).font(.system(size: 11, design: .monospaced))
+            Spacer()
+            ClipTimestamp(date: clip.copiedAt, font: .caption)
+                .foregroundStyle(.secondary)
+
+            // Only offered once pinned: an unpinned preview closes itself when the pointer leaves,
+            // so a close button there would be a control for something already happening.
+            if isPinned {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 20, height: 20)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+            }
+        }
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(.quaternary, in: Capsule())
+            .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if clip.sensitivity == .secret {
+            VStack(spacing: 6) {
+                Image(systemName: "eye.slash").font(.largeTitle).foregroundStyle(.orange)
+                Text("Hidden — this looks like a secret").foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let hex = clip.colorHex, let colour = Color(hex: hex) {
+            VStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 10).fill(colour)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(ColorFormats.allCases, id: \.self) { format in
+                        if let text = ColorFormats.string(format, fromHex: hex) {
+                            HStack {
+                                Text(format.displayName)
+                                    .font(.caption).foregroundStyle(.tertiary)
+                                    .frame(width: 48, alignment: .leading)
+                                Text(text).font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
                             }
                         }
                     }
                 }
-            } else if let thumbnailURL {
-                AsyncImage(url: thumbnailURL) { image in
-                    image.resizable().aspectRatio(contentMode: .fit)
-                } placeholder: {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(height: 100)
-                }
-                .frame(maxHeight: 200)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                if let size = clip.imageSize {
-                    Text("\(size.width) × \(size.height)")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-            } else {
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else if let thumbnailURL {
+            imageContent(url: thumbnailURL)
+        } else {
+            ScrollView {
                 Text(fullText.isEmpty ? clip.displayText : fullText)
-                    .font(.system(.callout,
+                    .font(.system(.body,
                                   design: clip.contentType == .code ? .monospaced : .default))
-                    .lineLimit(12)
+                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
 
-            Text("Click to paste · drag to any app")
+    /// Small images are shown at their natural size and centred; large ones are scaled down to fit.
+    ///
+    /// `.aspectRatio(contentMode: .fit)` alone scales in *both* directions, so a 60×20 favicon
+    /// would be blown up to fill the window — enormous, blurry, and a worse view of the clip than
+    /// the card already gives.
+    @ViewBuilder
+    private func imageContent(url: URL) -> some View {
+        GeometryReader { proxy in
+            AsyncImage(url: url) { image in
+                if shouldScaleDown(in: proxy.size) {
+                    image.resizable().aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // Natural size, centred.
+                    image
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } placeholder: {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+
+    private func shouldScaleDown(in available: CGSize) -> Bool {
+        guard let size = clip.imageSize else { return true }
+        return CGFloat(size.width) > available.width || CGFloat(size.height) > available.height
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if let ocrText, !ocrText.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "text.viewfinder").font(.caption)
+                Text(ocrText.replacingOccurrences(of: "\n", with: " "))
+                    .font(.caption).lineLimit(1)
+                Spacer()
+                Button("Copy Text") { model.copyTextFromImage(clip) }
+                    .controlSize(.small)
+            }
+            .foregroundStyle(.secondary)
+        } else {
+            Text(isPinned ? "Click ✕ to close" : "Click to keep open · drag to any app")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
-        .padding(12)
-        .frame(width: 300)
-        .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) {
-            thumbnailURL = await model.thumbnailURL(for: clip)
-            fullText = await model.fullText(for: clip)
-        }
+    }
+
+    private func load() async {
+        thumbnailURL = await model.thumbnailURL(for: clip)
+        fullText = await model.fullText(for: clip)
+        ocrText = await model.existingOCRText(for: clip)
     }
 }

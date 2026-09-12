@@ -39,12 +39,15 @@ public final class ShelfViewModel {
     private let store: ClipStore
     private let coordinator: PasteCoordinator
     private let settings: SettingsStore
+    private let enrichment: EnrichmentPipeline?
     private var observation: Task<Void, Never>?
 
-    public init(store: ClipStore, coordinator: PasteCoordinator, settings: SettingsStore) {
+    public init(store: ClipStore, coordinator: PasteCoordinator, settings: SettingsStore,
+                enrichment: EnrichmentPipeline? = nil) {
         self.store = store
         self.coordinator = coordinator
         self.settings = settings
+        self.enrichment = enrichment
         self.position = ShelfPosition(rawValue: settings.shelfPosition.rawValue) ?? .top
         self.itemCount = settings.shelfItemCount
     }
@@ -187,6 +190,22 @@ public final class ShelfViewModel {
         Task {
             _ = try? await store.createCategory(name: name)
             await reload()
+        }
+    }
+
+    /// OCR text already on record, without starting recognition — the preview should not kick off
+    /// Vision work merely because the pointer paused over a card.
+    public func existingOCRText(for clip: ClipSummary) async -> String? {
+        try? await store.ocrText(forClip: clip.id)
+    }
+
+    /// Copies the text Vision recognised inside an image (spec §4.8).
+    public func copyTextFromImage(_ clip: ClipSummary) {
+        Task {
+            guard let enrichment,
+                  let text = await enrichment.recognizeTextNow(clipId: clip.id),
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            await coordinator.writeOnly(.text(text), originClipUUID: clip.uuid)
         }
     }
 

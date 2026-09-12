@@ -54,6 +54,7 @@ public final class LibraryViewModel {
     private let store: ClipStore
     private let coordinator: PasteCoordinator?
     private let editor: ExternalEditor?
+    private let enrichment: EnrichmentPipeline?
     private var observation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -64,10 +65,11 @@ public final class LibraryViewModel {
     private let pageSize = 200
 
     public init(store: ClipStore, coordinator: PasteCoordinator? = nil,
-                editor: ExternalEditor? = nil) {
+                editor: ExternalEditor? = nil, enrichment: EnrichmentPipeline? = nil) {
         self.store = store
         self.coordinator = coordinator
         self.editor = editor
+        self.enrichment = enrichment
     }
 
     public var selectedClips: [ClipSummary] {
@@ -295,6 +297,23 @@ public final class LibraryViewModel {
                 await coordinator.writeOnly(
                     .text(transform?.apply(to: text) ?? text), originClipUUID: summary.uuid)
             }
+        }
+    }
+
+    /// Copies the text Vision recognised inside an image (spec §4.8).
+    ///
+    /// Falls back to recognising it on demand, because a screenshot taken seconds ago may not have
+    /// reached the enrichment queue yet — and telling the user "no text found" when the real answer
+    /// is "not yet" would be wrong.
+    public func copyTextFromImage(_ summary: ClipSummary) {
+        Task {
+            guard let enrichment, let coordinator else { return }
+            guard let text = await enrichment.recognizeTextNow(clipId: summary.id),
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                errorMessage = "No text was found in that image."
+                return
+            }
+            await coordinator.writeOnly(.text(text), originClipUUID: summary.uuid)
         }
     }
 

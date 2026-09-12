@@ -184,3 +184,31 @@ struct ShelfContrastTests {
         #expect(ShelfPalette.cardPrimaryText == Color.white.opacity(0.92))
     }
 }
+
+@Suite("Preview sizing")
+@MainActor
+struct PreviewSizingTests {
+    @Test("Preview height fraction is clamped to something usable", arguments: [
+        (0.0, 0.25), (0.25, 0.25), (0.5, 0.5), (0.85, 0.85), (2.0, 0.85),
+    ])
+    func clampsFraction(input: Double, expected: Double) {
+        #expect(abs(SettingsStore.clampPreviewFraction(input) - expected) < 0.0001)
+    }
+
+    @Test("Preview height defaults to half the screen")
+    func defaultsToHalf() {
+        let settings = SettingsStore(
+            defaults: UserDefaults(suiteName: "Preview-\(UUID().uuidString)")!)
+        #expect(settings.previewHeightFraction == 0.5)
+    }
+
+    @Test("Preview height persists")
+    func persists() {
+        let defaults = UserDefaults(suiteName: "PreviewPersist-\(UUID().uuidString)")!
+        do {
+            let settings = SettingsStore(defaults: defaults)
+            settings.previewHeightFraction = 0.75
+        }
+        #expect(SettingsStore(defaults: defaults).previewHeightFraction == 0.75)
+    }
+}

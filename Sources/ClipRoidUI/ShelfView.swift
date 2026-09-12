@@ -154,7 +154,7 @@ struct ShelfView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     ForEach(model.clips) { clip in
-                        ShelfCard(clip: clip, model: model,
+                        ShelfCard(clip: clip, model: model, settings: settings,
                                   size: ShelfMetrics.cardSize(forThickness: thickness),
                                   previewEdge: popoverEdge)
                     }
