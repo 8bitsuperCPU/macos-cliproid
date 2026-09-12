@@ -15,7 +15,8 @@ public struct LibraryView: View {
     let environment: AppEnvironment
 
     public init(store: ClipStore, environment: AppEnvironment) {
-        _model = State(initialValue: LibraryViewModel(store: store))
+        _model = State(initialValue: LibraryViewModel(
+            store: store, coordinator: environment.paste, editor: environment.externalEditor))
         self.environment = environment
     }
 

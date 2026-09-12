@@ -132,13 +132,70 @@ struct ClipContextMenu: View {
     @Bindable var model: LibraryViewModel
 
     var body: some View {
+        // "Load into clipboard" rather than "Copy": the clip is already a copy, and the
+        // distinction that matters to the user is that this does not paste anywhere.
+        Button("Load into Clipboard", systemImage: "doc.on.clipboard") {
+            model.loadIntoClipboard(clip)
+        }
+
+        if clip.colorHex != nil {
+            Menu("Load Colour As") {
+                ForEach(ColorFormats.allCases, id: \.self) { format in
+                    Button(ColorFormats.string(format, fromHex: clip.colorHex ?? "")
+                           ?? format.displayName) {
+                        model.loadColour(clip, as: format)
+                    }
+                }
+            }
+        }
+
+        if clip.contentType.isEditableText {
+            Menu("Load Text As") {
+                ForEach(TextCaseTransform.allCases, id: \.self) { transform in
+                    Button(transform.displayName) {
+                        model.loadIntoClipboard(clip, transform: transform)
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        // Opens in whatever the system considers the default app for this type, which is the
+        // user's own configuration rather than a guess of ours.
+        Button(editLabel, systemImage: "pencil") { model.editExternally(clip) }
+
+        Divider()
+
         Button(clip.isPinned ? "Unpin" : "Pin", systemImage: "pin") { model.togglePin(clip) }
         Button(clip.isFavorite ? "Remove favourite" : "Favourite", systemImage: "star") {
             model.toggleFavorite(clip)
         }
+
+        if !model.categories.isEmpty {
+            Menu("Add to Collection") {
+                ForEach(model.categories) { category in
+                    Button(category.name) {
+                        Task { await model.toggleCategory(category, on: clip) }
+                    }
+                }
+            }
+        }
+
         Divider()
+
         Button("Delete", systemImage: "trash", role: .destructive) {
             model.delete(ids: [clip.id])
+        }
+    }
+
+    /// Names the destination where it is knowable, because "Edit" alone gives no clue whether the
+    /// clip is about to open in Preview, TextEdit or something unexpected.
+    private var editLabel: String {
+        switch clip.contentType {
+        case .file: "Open Original File"
+        case .image, .screenshot: "Edit Image in Default App"
+        default: "Edit in Default App"
         }
     }
 }

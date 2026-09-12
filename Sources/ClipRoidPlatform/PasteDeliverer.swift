@@ -14,6 +14,8 @@ public enum PasteOutcome: Sendable, Equatable {
 }
 
 public enum ClipboardOnlyReason: Sendable, Equatable {
+    /// The user turned auto-paste off. Not a failure — a preference.
+    case disabledByUser
     case accessibilityNotGranted
     case noTargetApp
     case keyboardLayoutUnresolvable
@@ -27,6 +29,12 @@ public let clipRoidEventMagic: Int64 = 0x43_4C_52_44
 @MainActor
 public final class PasteDeliverer {
     private let logger = Logger(subsystem: "dev.philtronic.ClipRoid", category: "Paste")
+
+    /// Whether to deliver a synthetic Cmd+V at all.
+    ///
+    /// Off means clips still reach the clipboard and the user presses ⌘V themselves — the same
+    /// path taken when Accessibility has not been granted, and a perfectly usable one.
+    public var isAutoPasteEnabled = true
 
     /// Apps where auto-paste is known to misbehave. Empty at present — S4 found all five tested
     /// targets working, including Electron and Terminal — but the mechanism exists because the
@@ -56,6 +64,9 @@ public final class PasteDeliverer {
         }
         if let bundleId = target?.bundleId, denyList.contains(bundleId) {
             return .clipboardOnly(reason: .appOnDenyList)
+        }
+        guard isAutoPasteEnabled else {
+            return .clipboardOnly(reason: .disabledByUser)
         }
         guard Self.isAccessibilityGranted else {
             return .clipboardOnly(reason: .accessibilityNotGranted)

@@ -114,6 +114,9 @@ struct ClipRoidApp: App {
                 },
                 onShortcutChange: {
                     Task { await environment.applyShortcutSettings() }
+                },
+                onPasteChange: {
+                    environment.applyPasteSettings()
                 })
         }
 

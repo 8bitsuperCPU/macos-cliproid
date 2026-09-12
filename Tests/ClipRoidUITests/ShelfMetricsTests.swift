@@ -43,10 +43,50 @@ struct ShelfMetricsTests {
         #expect(many > few * 2)
     }
 
-    @Test("The collapsed nub is small but aimable")
-    func collapsedNubIsSmall() {
-        #expect(ShelfMetrics.collapsedThickness <= 8)
-        #expect(ShelfMetrics.collapsedLength >= 100)
+    @Test("Collapsed bar dimensions are clamped to a usable range", arguments: [
+        (0.0, 4.0), (4.0, 4.0), (12.0, 12.0), (40.0, 40.0), (500.0, 40.0),
+    ])
+    func clampsCollapsedThickness(input: Double, expected: Double) {
+        #expect(SettingsStore.clampCollapsedThickness(input) == expected)
+    }
+
+    @Test("Collapsed bar length is clamped", arguments: [
+        (0.0, 60.0), (264.0, 264.0), (900.0, 900.0), (5_000.0, 900.0),
+    ])
+    func clampsCollapsedLength(input: Double, expected: Double) {
+        #expect(SettingsStore.clampCollapsedLength(input) == expected)
+    }
+
+    @Test("Collapsed bar settings persist")
+    func collapsedSettingsPersist() {
+        let defaults = UserDefaults(suiteName: "Collapsed-\(UUID().uuidString)")!
+        do {
+            let settings = SettingsStore(defaults: defaults)
+            settings.collapsedThickness = 20
+            settings.collapsedLength = 400
+            settings.collapsedRainbow = true
+        }
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.collapsedThickness == 20)
+        #expect(reloaded.collapsedLength == 400)
+        #expect(reloaded.collapsedRainbow)
+    }
+
+    /// The gradient has to wrap, or it snaps back visibly at the seam once a cycle.
+    @Test("The rainbow gradient is continuous across the cycle")
+    func rainbowWraps() {
+        let start = CollapsedBar.spectrum(phase: 0)
+        let end = CollapsedBar.spectrum(phase: 1)
+        #expect(start.count == end.count)
+        // phase 0 and phase 1 are the same point on the wheel.
+        #expect(start.first == end.first)
+    }
+
+    @Test("The rainbow produces a full set of distinct stops")
+    func rainbowStops() {
+        let colours = CollapsedBar.spectrum(phase: 0.25)
+        #expect(colours.count == 7)
+        #expect(Set(colours.map(\.description)).count > 1, "must not be a flat colour")
     }
 
     @Test("Thickness is clamped to a usable range", arguments: [

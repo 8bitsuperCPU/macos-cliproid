@@ -52,6 +52,8 @@ public final class LibraryViewModel {
     public var errorMessage: String?
 
     private let store: ClipStore
+    private let coordinator: PasteCoordinator?
+    private let editor: ExternalEditor?
     private var observation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -61,8 +63,11 @@ public final class LibraryViewModel {
     /// diffing 10,000 rows on every capture is its own problem.
     private let pageSize = 200
 
-    public init(store: ClipStore) {
+    public init(store: ClipStore, coordinator: PasteCoordinator? = nil,
+                editor: ExternalEditor? = nil) {
         self.store = store
+        self.coordinator = coordinator
+        self.editor = editor
     }
 
     public var selectedClips: [ClipSummary] {
@@ -266,6 +271,53 @@ public final class LibraryViewModel {
         Task {
             do { try await store.updateText(id: summary.id, to: newText) }
             catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    // MARK: - Copy and edit
+
+    /// Puts a clip on the clipboard without pasting it anywhere.
+    public func loadIntoClipboard(_ summary: ClipSummary, transform: TextCaseTransform? = nil) {
+        Task {
+            guard let coordinator else { return }
+            switch summary.contentType {
+            case .image, .screenshot:
+                if let path = summary.thumbnailPath {
+                    let full = path.replacingOccurrences(of: ".thumb.png", with: ".png")
+                    if let data = await store.imageData(forBlobPath: full) {
+                        await coordinator.writeOnly(.image(data), originClipUUID: summary.uuid)
+                        return
+                    }
+                }
+                fallthrough
+            default:
+                let text = (try? await store.fullText(id: summary.id)) ?? summary.displayText
+                await coordinator.writeOnly(
+                    .text(transform?.apply(to: text) ?? text), originClipUUID: summary.uuid)
+            }
+        }
+    }
+
+    /// Copies a colour clip in a chosen format (spec §4.13).
+    public func loadColour(_ summary: ClipSummary, as format: ColorFormats) {
+        guard let hex = summary.colorHex,
+              let text = ColorFormats.string(format, fromHex: hex) else { return }
+        Task { await coordinator?.writeOnly(.text(text), originClipUUID: summary.uuid) }
+    }
+
+    /// Opens the clip in whichever app the system considers the default for its type.
+    public func editExternally(_ summary: ClipSummary) {
+        Task {
+            guard let editor else { return }
+            let result = await editor.edit(summary)
+            switch result {
+            case .opened, .openedOriginal:
+                break
+            case .unsupported(let reason):
+                errorMessage = reason
+            case .failed(let message):
+                errorMessage = message
+            }
         }
     }
 

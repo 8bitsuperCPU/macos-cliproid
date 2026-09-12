@@ -21,7 +21,9 @@ public final class AppEnvironment {
     public let settings: SettingsStore
     public let smartFilters: SmartFilterService
     public let shortcuts: ShortcutExpander
+    public let externalEditor: ExternalEditor
     public let paste: PasteCoordinator
+    private let deliverer = PasteDeliverer()
 
     /// Set by the UI layer, which owns the panel. Kit deliberately does not import SwiftUI, so the
     /// hotkey handler calls out through this rather than reaching into a window itself.
@@ -59,11 +61,12 @@ public final class AppEnvironment {
         self.retention = RetentionSweeper(store: store)
         self.hotKeys = HotKeyCenter()
         self.settings = SettingsStore()
+        self.externalEditor = ExternalEditor(store: store)
         self.shortcuts = ShortcutExpander(
             store: store, observer: KeystrokeObserver(), pasteboard: pasteboard)
         self.paste = PasteCoordinator(
             store: store, pasteboard: pasteboard,
-            deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
+            deliverer: deliverer, frontmost: WorkspaceFrontmostAppProvider())
     }
 
     /// Registers the global hotkeys. Separate from `start()` because the UI must have installed its
@@ -128,12 +131,19 @@ public final class AppEnvironment {
         await retention.updatePolicy(settings.retentionPolicy)
         await retention.start()
         await capture.updateIgnoredApps(Set(settings.ignoredBundleIds))
+        applyPasteSettings()
         await applyShortcutSettings()
     }
 
     /// Pushes changed retention preferences to the sweeper without waiting for the next sweep.
     public func applyRetentionSettings() async {
         await retention.updatePolicy(settings.retentionPolicy)
+    }
+
+    /// Pushes the auto-paste preference to the deliverer. Without this the Settings toggle is a
+    /// control that looks live and changes nothing.
+    public func applyPasteSettings() {
+        deliverer.isAutoPasteEnabled = settings.autoPasteEnabled
     }
 
     /// Starts or tears down the keystroke tap to match the preference.
@@ -155,6 +165,7 @@ public final class AppEnvironment {
     }
 
     public func stop() async {
+        externalEditor.stopAll()
         shortcuts.stop()
         hotKeys.shutdown()
         await retention.stop()

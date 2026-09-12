@@ -39,6 +39,11 @@ public final class SettingsStore {
         self.shelfBackgroundRaw = defaults.string(forKey: Key.shelfBackground) ?? "material"
         self.shelfTintHex = defaults.string(forKey: Key.shelfTintHex) ?? "#1C1C1E"
         self.shelfOpacity = defaults.object(forKey: Key.shelfOpacity) as? Double ?? 0.9
+        self.storedCollapsedThickness = Self.clampCollapsedThickness(
+            defaults.object(forKey: Key.collapsedThickness) as? Double ?? 12)
+        self.storedCollapsedLength = Self.clampCollapsedLength(
+            defaults.object(forKey: Key.collapsedLength) as? Double ?? 264)
+        self.collapsedRainbow = defaults.bool(forKey: Key.collapsedRainbow)
     }
 
     private enum Key {
@@ -61,6 +66,9 @@ public final class SettingsStore {
         static let shelfBackground = "shelf.background"
         static let shelfTintHex = "shelf.tintHex"
         static let shelfOpacity = "shelf.opacity"
+        static let collapsedThickness = "shelf.collapsed.thickness"
+        static let collapsedLength = "shelf.collapsed.length"
+        static let collapsedRainbow = "shelf.collapsed.rainbow"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -180,6 +188,57 @@ public final class SettingsStore {
     public nonisolated static let previewThreshold: Double = 92
 
     public var shelfShowsPreviews: Bool { shelfThickness >= Self.previewThreshold }
+
+    // MARK: - Collapsed bar
+
+    /// Height of the collapsed bar for a top or bottom shelf; width for a side one.
+    @ObservationIgnored private var storedCollapsedThickness: Double
+    public var collapsedThickness: Double {
+        get {
+            access(keyPath: \.collapsedThickness)
+            return storedCollapsedThickness
+        }
+        set {
+            withMutation(keyPath: \.collapsedThickness) {
+                storedCollapsedThickness = Self.clampCollapsedThickness(newValue)
+                defaults.set(storedCollapsedThickness, forKey: Key.collapsedThickness)
+            }
+        }
+    }
+
+    /// How long the collapsed bar is along the screen edge.
+    @ObservationIgnored private var storedCollapsedLength: Double
+    public var collapsedLength: Double {
+        get {
+            access(keyPath: \.collapsedLength)
+            return storedCollapsedLength
+        }
+        set {
+            withMutation(keyPath: \.collapsedLength) {
+                storedCollapsedLength = Self.clampCollapsedLength(newValue)
+                defaults.set(storedCollapsedLength, forKey: Key.collapsedLength)
+            }
+        }
+    }
+
+    /// Below about 4pt the bar is hard to hit deliberately; above ~40pt it stops being a hint and
+    /// starts occupying the screen it was meant to give back.
+    public nonisolated static func clampCollapsedThickness(_ value: Double) -> Double {
+        min(max(value, 4), 40)
+    }
+
+    public nonisolated static func clampCollapsedLength(_ value: Double) -> Double {
+        min(max(value, 60), 900)
+    }
+
+    /// An animated gradient on the collapsed bar.
+    ///
+    /// Off by default: it repaints continuously while on screen, which is real work for an
+    /// always-present element, so it should be a choice rather than something a user discovers
+    /// their battery paying for.
+    public var collapsedRainbow: Bool {
+        didSet { defaults.set(collapsedRainbow, forKey: Key.collapsedRainbow) }
+    }
 
     public var shelfAutoHide: Bool {
         didSet { defaults.set(shelfAutoHide, forKey: Key.shelfAutoHide) }

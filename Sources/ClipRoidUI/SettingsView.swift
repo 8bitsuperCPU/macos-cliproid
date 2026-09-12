@@ -8,18 +8,21 @@ public struct SettingsView: View {
     @Bindable var settings: SettingsStore
     var onShelfChange: @MainActor () -> Void
     var onShortcutChange: @MainActor () -> Void
+    var onPasteChange: @MainActor () -> Void
     @State private var rulesModel: RulesViewModel
 
     public init(
         settings: SettingsStore,
         rulesModel: RulesViewModel,
         onShelfChange: @escaping @MainActor () -> Void,
-        onShortcutChange: @escaping @MainActor () -> Void
+        onShortcutChange: @escaping @MainActor () -> Void,
+        onPasteChange: @escaping @MainActor () -> Void
     ) {
         self.settings = settings
         _rulesModel = State(initialValue: rulesModel)
         self.onShelfChange = onShelfChange
         self.onShortcutChange = onShortcutChange
+        self.onPasteChange = onPasteChange
     }
 
     public var body: some View {
@@ -40,6 +43,11 @@ public struct SettingsView: View {
 
             Section {
                 Toggle("Paste automatically after choosing a clip", isOn: $settings.autoPasteEnabled)
+                    .onChange(of: settings.autoPasteEnabled) { _, _ in onPasteChange() }
+                if !settings.autoPasteEnabled {
+                    Text("Clips are copied to the clipboard and you press ⌘V yourself.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 // Stating plainly what the permission is for, and that the app still works without
                 // it, is the honest version of asking (spec §9).
                 if !PasteDeliverer.isAccessibilityGranted {
@@ -95,6 +103,35 @@ public struct SettingsView: View {
 
             Toggle("Collapse to a small bar until I point at it", isOn: $settings.shelfAutoHide)
                 .onChange(of: settings.shelfAutoHide) { _, _ in onShelfChange() }
+
+            if settings.shelfAutoHide {
+                Section("Collapsed bar") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Slider(value: $settings.collapsedThickness, in: 4...40, step: 1) {
+                            Text("Thickness")
+                        }
+                        .onChange(of: settings.collapsedThickness) { _, _ in onShelfChange() }
+                        Text("\(Int(settings.collapsedThickness))pt thick")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Slider(value: $settings.collapsedLength, in: 60...900, step: 10) {
+                            Text("Width")
+                        }
+                        .onChange(of: settings.collapsedLength) { _, _ in onShelfChange() }
+                        Text("\(Int(settings.collapsedLength))pt wide")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    Toggle("Animated rainbow", isOn: $settings.collapsedRainbow)
+                        .onChange(of: settings.collapsedRainbow) { _, _ in onShelfChange() }
+                    if settings.collapsedRainbow {
+                        Text("The bar is on screen whenever the shelf is collapsed, so this repaints continuously. It is capped at 30fps, but it will still use a little more power than a static bar.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
 
             Section("Size") {
                 VStack(alignment: .leading, spacing: 4) {

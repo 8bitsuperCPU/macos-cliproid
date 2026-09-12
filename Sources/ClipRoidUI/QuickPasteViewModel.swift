@@ -98,6 +98,7 @@ public final class QuickPasteViewModel {
 
     static func message(for reason: ClipboardOnlyReason) -> String {
         switch reason {
+        case .disabledByUser: "Copied — press ⌘V to paste"
         case .accessibilityNotGranted: "Copied — press ⌘V to paste"
         case .noTargetApp: "Copied to the clipboard"
         case .keyboardLayoutUnresolvable: "Copied — press ⌘V to paste"

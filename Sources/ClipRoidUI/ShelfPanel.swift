@@ -248,7 +248,7 @@ public final class ShelfPanel: NSObject {
     /// `visibleFrame.maxY` equals `frame.maxY` and the shelf simply sits at the very top, which is
     /// correct for that screen.
     private var currentThickness: CGFloat {
-        isExpanded ? thickness : ShelfMetrics.collapsedThickness
+        isExpanded ? thickness : CGFloat(settings.collapsedThickness)
     }
 
     /// How long the shelf is along its running axis, sized to its contents.
@@ -257,7 +257,7 @@ public final class ShelfPanel: NSObject {
     /// same size as before — the shelf never shrank. It is now derived from the cards actually
     /// shown, then capped so a shelf of twenty large cards cannot span the display.
     private func shelfSpan(in visible: NSRect) -> CGFloat {
-        guard isExpanded else { return ShelfMetrics.collapsedLength }
+        guard isExpanded else { return CGFloat(settings.collapsedLength) }
         let content = ShelfMetrics.expandedLength(
             cardCount: model.clips.count, thickness: thickness)
         let isHorizontal = model.position == .top || model.position == .bottom

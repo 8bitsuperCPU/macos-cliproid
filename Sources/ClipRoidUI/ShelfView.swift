@@ -9,9 +9,6 @@ enum ShelfMetrics {
     static let padding: CGFloat = 12
     /// Search row + chips row + section header.
     static let chromeHeight: CGFloat = 108
-    /// The collapsed nub: present enough to aim at, small enough to ignore.
-    static let collapsedThickness: CGFloat = 6
-    static let collapsedLength: CGFloat = 132
 
     static func cardSize(forThickness thickness: CGFloat) -> CGSize {
         let height = max(64, thickness - chromeHeight - padding)
@@ -61,11 +58,7 @@ struct ShelfView: View {
     /// Hiding entirely would leave no affordance at all — the user has to remember an invisible
     /// screen edge exists. A nub is unobtrusive and still says "something lives here".
     private var collapsedNub: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(Color.white.opacity(0.22))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(ShelfPalette.panel(settings).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+        CollapsedBar(settings: settings)
     }
 
     private var expanded: some View {
