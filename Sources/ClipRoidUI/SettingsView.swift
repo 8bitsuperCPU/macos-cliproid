@@ -32,14 +32,15 @@ public struct SettingsView: View {
             RulesView(model: rulesModel).tabItem { Label("Rules", systemImage: "line.3.horizontal.decrease.circle") }
             shortcuts.tabItem { Label("Shortcuts", systemImage: "text.cursor") }
             privacy.tabItem { Label("Privacy", systemImage: "hand.raised") }
+            AboutView(settings: settings).tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 460)
+        .frame(width: 500)
         .padding(.vertical, 8)
     }
 
     private var general: some View {
         Form {
-            Toggle("Launch ClipRoid at login", isOn: $settings.launchAtLogin)
+            Toggle("Launch ClipDroid at login", isOn: $settings.launchAtLogin)
 
             Section {
                 Toggle("Paste automatically after choosing a clip", isOn: $settings.autoPasteEnabled)
@@ -56,7 +57,7 @@ public struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Automatic pasting needs Accessibility permission.")
                                 .font(.caption)
-                            Text("Without it ClipRoid still copies your clip to the clipboard — you press ⌘V yourself.")
+                            Text("Without it ClipDroid still copies your clip to the clipboard — you press ⌘V yourself.")
                                 .font(.caption).foregroundStyle(.secondary)
                             Button("Grant Accessibility…") { PasteDeliverer.requestAccessibility() }
                                 .controlSize(.small)
@@ -79,7 +80,7 @@ public struct SettingsView: View {
                 // and the rest of the product promises it never does.
                 VStack(alignment: .leading, spacing: 6) {
                     Label {
-                        Text("This is the only time ClipRoid contacts the internet. Everything else stays on this Mac.")
+                        Text("This is the only time ClipDroid contacts the internet. Everything else stays on this Mac.")
                     } icon: { Image(systemName: "network") }
 
                     Label {
@@ -262,7 +263,7 @@ public struct SettingsView: View {
             Section("What this means") {
                 VStack(alignment: .leading, spacing: 8) {
                     Label {
-                        Text("ClipRoid watches for typed characters so it can recognise a shortcut like \(settings.shortcutPrefix)welcome.")
+                        Text("ClipDroid watches for typed characters so it can recognise a shortcut like \(settings.shortcutPrefix)welcome.")
                     } icon: { Image(systemName: "keyboard") }
 
                     Label {
@@ -274,7 +275,7 @@ public struct SettingsView: View {
                     } icon: { Image(systemName: "xmark.circle") }
 
                     Label {
-                        Text("This needs Accessibility permission, and works only while ClipRoid is running.")
+                        Text("This needs Accessibility permission, and works only while ClipDroid is running.")
                     } icon: { Image(systemName: "lock") }
                 }
                 .font(.caption)
@@ -336,7 +337,7 @@ public struct SettingsView: View {
             }
 
             Section {
-                Text("ClipRoid stores everything on this Mac and makes no network requests.")
+                Text("ClipDroid stores everything on this Mac and makes no network requests.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

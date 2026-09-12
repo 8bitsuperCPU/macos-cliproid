@@ -40,6 +40,13 @@ public final class AppEnvironment {
 
     public static func defaultRoot() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        // Still "ClipRoid", deliberately, even though the app is now called ClipDroid.
+        //
+        // This directory holds every clip the user has. Renaming it would orphan their entire
+        // history behind a folder the app no longer looks in — a rename of the product is not a
+        // reason to lose their data. Same reasoning keeps the bundle identifier unchanged: it is
+        // what TCC keys the Accessibility grant on and what UserDefaults keys every preference on,
+        // so changing it would silently reset both.
         return base.appendingPathComponent("ClipRoid", isDirectory: true)
     }
 
@@ -125,7 +132,7 @@ public final class AppEnvironment {
             options: [.userInitiatedAllowingIdleSystemSleep],
             reason: "Monitoring the clipboard for new clips"
         )
-        Diagnostics.log("ClipRoid starting — Accessibility granted: \(PasteDeliverer.isAccessibilityGranted)")
+        Diagnostics.log("ClipDroid starting — Accessibility granted: \(PasteDeliverer.isAccessibilityGranted)")
         let count = await pasteboard.changeCount
         await poller.seed(changeCount: count)
         await capture.start()

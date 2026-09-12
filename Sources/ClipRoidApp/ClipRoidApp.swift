@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        Diagnostics.log("ClipRoid terminating")
+        Diagnostics.log("ClipDroid terminating")
     }
 
     /// Reopening from the Dock or Spotlight brings the window back. Returning true lets AppKit
@@ -104,15 +104,15 @@ struct ClipRoidApp: App {
     /// Brings the Library back, creating it if the user closed it.
     ///
     /// `NSApplication.activate` alone only raises windows that still exist. Once the Library had
-    /// been closed, "Open ClipRoid" activated an app with no window and appeared to do nothing —
+    /// been closed, "Open ClipDroid" activated an app with no window and appeared to do nothing —
     /// while clicking the Dock icon worked, because AppKit's reopen handler creates one.
     @MainActor
     private func openLibraryWindow() {
-        Diagnostics.log("Open ClipRoid chosen from the menu bar")
+        Diagnostics.log("Open ClipDroid chosen from the menu bar")
         NSApplication.shared.activate(ignoringOtherApps: true)
         if let existing = NSApplication.shared.windows.first(where: {
             $0.identifier?.rawValue.contains(Self.libraryWindowID) == true
-                || $0.title == "ClipRoid"
+                || $0.title == "ClipDroid"
         }), existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
             return
@@ -153,7 +153,7 @@ struct ClipRoidApp: App {
                 })
         }
 
-        MenuBarExtra("ClipRoid", systemImage: "doc.on.clipboard") {
+        MenuBarExtra("ClipDroid", systemImage: "doc.on.clipboard") {
             Button("Quick Paste") { quickPaste?.show() }
                 .keyboardShortcut("v", modifiers: [.control, .command])
 
@@ -166,10 +166,10 @@ struct ClipRoidApp: App {
                 isShelfShown.toggle()
             }
 
-            Button("Open ClipRoid") { openLibraryWindow() }
+            Button("Open ClipDroid") { openLibraryWindow() }
                 .keyboardShortcut("o")
             Divider()
-            Button("Quit ClipRoid") {
+            Button("Quit ClipDroid") {
                 Task {
                     await environment.stop()
                     NSApplication.shared.terminate(nil)

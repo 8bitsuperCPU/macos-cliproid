@@ -164,7 +164,7 @@ public final class ShelfViewModel {
                 contentType: .note,
                 contentHash: Dedupe.hash(UUID().uuidString),
                 body: body,
-                sourceAppName: "ClipRoid",
+                sourceAppName: "ClipDroid",
                 enrichmentState: .notApplicable))
             await reload()
             openLibrary?()

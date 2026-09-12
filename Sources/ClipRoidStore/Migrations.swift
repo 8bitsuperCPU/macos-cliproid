@@ -19,7 +19,7 @@ public enum Migrations {
         if version > 0, let backupDirectory {
             try? FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            let url = backupDirectory.appendingPathComponent("ClipRoid-v\(version)-\(stamp).sqlite")
+            let url = backupDirectory.appendingPathComponent("ClipDroid-v\(version)-\(stamp).sqlite")
             try await db.backup(to: url)
             logger.info("Pre-migration snapshot written")
         }

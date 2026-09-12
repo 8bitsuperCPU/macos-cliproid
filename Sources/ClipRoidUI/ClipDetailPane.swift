@@ -81,7 +81,7 @@ struct ClipDetailPane: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("This looks like a secret", systemImage: "eye.slash")
                     .font(.callout.weight(.medium))
-                Text("ClipRoid hides passwords, keys and tokens until you ask to see them.")
+                Text("ClipDroid hides passwords, keys and tokens until you ask to see them.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Reveal") { isRevealed = true }
                     .controlSize(.small)

@@ -32,7 +32,7 @@ public struct LinkPreviewFetcher: LinkPreviewFetching, LinkPreviewImageFetching 
 
         var request = URLRequest(url: url)
         // Identifies the app honestly rather than impersonating a browser, and asks only for HTML.
-        request.setValue("ClipRoid/1.0 (+link preview)", forHTTPHeaderField: "User-Agent")
+        request.setValue("ClipDroid/1.0 (+link preview)", forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.httpShouldHandleCookies = false
 
@@ -58,7 +58,7 @@ public struct LinkPreviewFetcher: LinkPreviewFetching, LinkPreviewImageFetching 
     /// Downloads a preview image, small enough to be a thumbnail.
     public func imageData(from url: URL, maxBytes: Int = 4 * 1024 * 1024) async throws -> Data? {
         var request = URLRequest(url: url)
-        request.setValue("ClipRoid/1.0 (+link preview)", forHTTPHeaderField: "User-Agent")
+        request.setValue("ClipDroid/1.0 (+link preview)", forHTTPHeaderField: "User-Agent")
         request.httpShouldHandleCookies = false
 
         let (data, response) = try await session.data(for: request)

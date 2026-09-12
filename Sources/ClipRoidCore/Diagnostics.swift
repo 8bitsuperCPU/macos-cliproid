@@ -11,7 +11,7 @@ import os.log
 /// every launch so a revoked grant announces itself rather than presenting as a paste bug.
 public enum Diagnostics {
     public static let logURL = URL(fileURLWithPath: NSHomeDirectory())
-        .appendingPathComponent("Library/Logs/ClipRoid.log")
+        .appendingPathComponent("Library/Logs/ClipDroid.log")
 
     private static let logger = Logger(subsystem: "dev.philtronic.ClipRoid", category: "Diagnostics")
     private static let lock = NSLock()

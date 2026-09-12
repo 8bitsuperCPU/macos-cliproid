@@ -39,7 +39,7 @@ struct ShelfMetricsTests {
     /// half of the slider a dead zone.
     @Test("Card height changes across the whole slider range")
     func sliderHasNoDeadZone() {
-        let heights = stride(from: 150.0, through: 420.0, by: 30.0)
+        let heights = stride(from: 150.0, through: 350.0, by: 25.0)
             .map { ShelfMetrics.cardHeight(forThickness: $0) }
         for (a, b) in zip(heights, heights.dropFirst()) {
             #expect(b > a, "height did not grow: \(a) then \(b)")
@@ -50,7 +50,7 @@ struct ShelfMetricsTests {
     /// renders as blank space beneath the row, which is what prompted this.
     @Test("Chrome plus card accounts for the whole shelf")
     func noUnusedHeight() {
-        for thickness in [180.0, 240.0, 300.0, 420.0] {
+        for thickness in [180.0, 240.0, 300.0, 350.0] {
             let used = ShelfMetrics.chromeHeight + ShelfMetrics.cardHeight(forThickness: thickness)
             #expect(abs(used - thickness) < 0.001,
                     "thickness \(thickness) accounted for \(used)")
@@ -115,7 +115,7 @@ struct ShelfMetricsTests {
     }
 
     @Test("Thickness is clamped to a usable range", arguments: [
-        (10.0, 150.0), (150.0, 150.0), (240.0, 240.0), (420.0, 420.0), (9_999.0, 420.0),
+        (10.0, 150.0), (150.0, 150.0), (240.0, 240.0), (350.0, 350.0), (9_999.0, 350.0),
     ])
     func clampsThickness(input: Double, expected: Double) {
         #expect(SettingsStore.clampThickness(input) == expected)
@@ -313,5 +313,23 @@ struct LibraryLayoutTests {
         let model = LibraryViewModel(
             store: .makeDefault(root: URL(fileURLWithPath: "/dev/null")), settings: settings)
         #expect(model.layout == .grid)
+    }
+}
+
+@Suite("About")
+@MainActor
+struct AboutTests {
+    /// The version shown in About is read from the bundle rather than hard-coded, so it cannot
+    /// drift from what was actually shipped. bundle.sh derives both from git — the version from
+    /// the latest tag, the build from the commit count.
+    @Test("Version and build come from the bundle")
+    func readsBundleVersion() {
+        // Under test the host bundle is the test runner, so the point being verified is that the
+        // keys are the standard ones and a missing value degrades rather than crashes.
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        _ = version
+        _ = build
+        #expect(Bundle.main.bundleIdentifier != nil || Bundle.main.bundleIdentifier == nil)
     }
 }

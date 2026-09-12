@@ -56,7 +56,7 @@ public struct LibraryView: View {
                 }
             }
         }
-        .persistentWindowFrame("ClipRoidLibrary", minSize: NSSize(width: 760, height: 460))
+        .persistentWindowFrame("ClipDroidLibrary", minSize: NSSize(width: 760, height: 460))
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
         .toolbar { toolbarContent }
         .task { model.start() }

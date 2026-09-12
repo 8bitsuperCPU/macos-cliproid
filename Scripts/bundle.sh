@@ -21,7 +21,10 @@ for arg in "$@"; do
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="ClipRoid"
+# The displayed name. The bundle identifier below deliberately does NOT follow it: TCC keys the
+# Accessibility grant on the identifier and UserDefaults keys every preference on it, so changing
+# it would silently revoke permissions and reset settings for anyone already running the app.
+APP_NAME="ClipDroid"
 
 # Fixed from the first build and never changed. Every Accessibility and Screen Recording grant the
 # app is given is keyed on this string; changing it silently revokes all of them.
@@ -131,11 +134,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <!-- Reading a file clip's bytes to build its thumbnail crosses these TCC gates even in an
          unsandboxed app. Without a string the prompt renders blank and looks broken. -->
     <key>NSDesktopFolderUsageDescription</key>
-    <string>ClipRoid reads files you copy so it can show you a preview of them.</string>
+    <string>ClipDroid reads files you copy so it can show you a preview of them.</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>ClipRoid reads files you copy so it can show you a preview of them.</string>
+    <string>ClipDroid reads files you copy so it can show you a preview of them.</string>
     <key>NSDownloadsFolderUsageDescription</key>
-    <string>ClipRoid reads files you copy so it can show you a preview of them.</string>
+    <string>ClipDroid reads files you copy so it can show you a preview of them.</string>
 
     <!-- App Nap would otherwise throttle the pasteboard poller in the background, which shows up
          as clips silently going missing. The runtime assertion in AppEnvironment is the other half

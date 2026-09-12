@@ -35,7 +35,7 @@ public struct ContentView: View {
                     .listStyle(.inset)
                 }
             }
-            .navigationTitle("ClipRoid")
+            .navigationTitle("ClipDroid")
         }
         .task { model.start() }
     }
