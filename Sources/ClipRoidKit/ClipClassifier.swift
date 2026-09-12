@@ -9,21 +9,11 @@ public enum ClipClassifier {
     public static func classify(_ snapshot: RawSnapshot) -> CapturedClip? {
         let concealed = PasteboardConventions.isConcealed(declaredTypes: snapshot.declaredTypes)
 
-        if let imageData = snapshot.imageData {
-            return CapturedClip(
-                contentType: .image,
-                contentHash: Dedupe.hash(imageData),
-                title: nil,
-                sensitivity: concealed ? .secret : .none,
-                sensitiveReason: concealed ? "Marked concealed by the source app" : nil,
-                sourceAppBundleId: snapshot.sourceAppBundleId,
-                sourceAppName: snapshot.sourceAppName,
-                copiedAt: snapshot.capturedAt,
-                contentSizeBytes: Int64(imageData.count),
-                imageData: imageData
-            )
-        }
-
+        // Files are checked before images, deliberately.
+        //
+        // Copying a file in some apps puts an icon or a preview on the pasteboard alongside the
+        // file URL. Testing images first classified those as pictures, so the clip held a picture
+        // of the file rather than the file — and pasting it produced the icon, not the document.
         if !snapshot.fileURLs.isEmpty {
             let joined = snapshot.fileURLs.map(\.path).joined(separator: "\n")
             return CapturedClip(
@@ -36,6 +26,21 @@ public enum ClipClassifier {
                 copiedAt: snapshot.capturedAt,
                 contentSizeBytes: Int64(joined.utf8.count),
                 fileURLs: snapshot.fileURLs
+            )
+        }
+
+        if let imageData = snapshot.imageData {
+            return CapturedClip(
+                contentType: .image,
+                contentHash: Dedupe.hash(imageData),
+                title: nil,
+                sensitivity: concealed ? .secret : .none,
+                sensitiveReason: concealed ? "Marked concealed by the source app" : nil,
+                sourceAppBundleId: snapshot.sourceAppBundleId,
+                sourceAppName: snapshot.sourceAppName,
+                copiedAt: snapshot.capturedAt,
+                contentSizeBytes: Int64(imageData.count),
+                imageData: imageData
             )
         }
 

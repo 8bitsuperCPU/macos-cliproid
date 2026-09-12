@@ -49,6 +49,11 @@ public final class SettingsStore {
             defaults.object(forKey: Key.previewHeightFraction) as? Double ?? 0.5)
         self.storedPreviewCloseDelay = Self.clampPreviewCloseDelay(
             defaults.object(forKey: Key.previewCloseDelay) as? Double ?? 1.5)
+        // Tiles by default: the app is pitched as a visual gallery of copied assets (spec §6),
+        // and a list of text rows is the opposite of that.
+        self.libraryLayoutRaw = defaults.string(forKey: Key.libraryLayout) ?? "grid"
+        self.storedTileSize = Self.clampTileSize(
+            defaults.object(forKey: Key.tileSize) as? Double ?? 150)
     }
 
     private enum Key {
@@ -77,6 +82,8 @@ public final class SettingsStore {
         static let shelfTextStyle = "shelf.textStyle"
         static let previewHeightFraction = "shelf.preview.heightFraction"
         static let previewCloseDelay = "shelf.preview.closeDelay"
+        static let libraryLayout = "library.layout"
+        static let tileSize = "library.tileSize"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -282,6 +289,37 @@ public final class SettingsStore {
 
     public nonisolated static func clampPreviewCloseDelay(_ value: Double) -> Double {
         min(max(value, 1.0), 10.0)
+    }
+
+    // MARK: - Library
+
+    private var libraryLayoutRaw: String {
+        didSet { defaults.set(libraryLayoutRaw, forKey: Key.libraryLayout) }
+    }
+    public var libraryLayout: String {
+        get { libraryLayoutRaw }
+        set { libraryLayoutRaw = newValue }
+    }
+
+    /// Tile width in the grid. Height follows from it.
+    @ObservationIgnored private var storedTileSize: Double
+    public var tileSize: Double {
+        get {
+            access(keyPath: \.tileSize)
+            return storedTileSize
+        }
+        set {
+            withMutation(keyPath: \.tileSize) {
+                storedTileSize = Self.clampTileSize(newValue)
+                defaults.set(storedTileSize, forKey: Key.tileSize)
+            }
+        }
+    }
+
+    /// Below ~90pt a tile cannot show a legible preview; above ~320pt a screenful holds so few
+    /// that the grid stops being a way to scan a history.
+    public nonisolated static func clampTileSize(_ value: Double) -> Double {
+        min(max(value, 90), 320)
     }
 
     /// An animated gradient on the collapsed bar.

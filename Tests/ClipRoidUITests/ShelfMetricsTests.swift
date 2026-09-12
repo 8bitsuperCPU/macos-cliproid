@@ -242,3 +242,51 @@ struct PreviewCloseDelayTests {
         #expect(SettingsStore(defaults: defaults).previewCloseDelay == 3.0)
     }
 }
+
+@Suite("Library layout")
+@MainActor
+struct LibraryLayoutTests {
+    private func scratch() -> UserDefaults {
+        UserDefaults(suiteName: "Layout-\(UUID().uuidString)")!
+    }
+
+    /// Spec §6 pitches the app as a visual gallery of copied assets, so a list of text rows is
+    /// the wrong first impression.
+    @Test("Tiles are the default layout")
+    func gridIsDefault() {
+        #expect(SettingsStore(defaults: scratch()).libraryLayout == "grid")
+    }
+
+    @Test("Tile size is clamped to a legible range", arguments: [
+        (0.0, 90.0), (90.0, 90.0), (150.0, 150.0), (320.0, 320.0), (2_000.0, 320.0),
+    ])
+    func clampsTileSize(input: Double, expected: Double) {
+        #expect(SettingsStore.clampTileSize(input) == expected)
+    }
+
+    @Test("Layout and tile size persist")
+    func persists() {
+        let defaults = scratch()
+        do {
+            let settings = SettingsStore(defaults: defaults)
+            settings.libraryLayout = "list"
+            settings.tileSize = 220
+        }
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.libraryLayout == "list")
+        #expect(reloaded.tileSize == 220)
+    }
+
+    @Test("An unknown stored layout falls back to tiles")
+    func unknownLayoutFallsBack() {
+        let defaults = scratch()
+        defaults.set("carousel", forKey: "library.layout")
+        let settings = SettingsStore(defaults: defaults)
+        #expect(LibraryLayout(rawValue: settings.libraryLayout) == nil,
+                "an unknown value stays unparsed…")
+        // …and the model falls back rather than failing.
+        let model = LibraryViewModel(
+            store: .makeDefault(root: URL(fileURLWithPath: "/dev/null")), settings: settings)
+        #expect(model.layout == .grid)
+    }
+}

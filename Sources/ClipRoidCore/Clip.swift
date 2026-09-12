@@ -130,12 +130,24 @@ public struct ClipSummary: Sendable, Identifiable, Equatable {
     /// Pixel dimensions, for image and screenshot clips.
     public var imageSize: (width: Int, height: Int)?
 
+    /// The first file's path, for file clips. The preview holds newline-separated paths.
+    public var firstFilePath: String? {
+        guard contentType == .file else { return nil }
+        return preview.split(separator: "\n").first.map(String.init)
+            ?? (preview.isEmpty ? nil : preview)
+    }
+
     /// What the row actually shows.
     ///
     /// An image clip has no body and, until OCR lands, no title — so `preview` is empty and the row
     /// renders as a bare thumbnail above a blank line, which reads as broken rather than as "an
     /// image". Every clip needs *something* to say about itself.
     public var displayText: String {
+        // Files first: their preview is the full path, which is both too long for a card and the
+        // least useful part. The name is what identifies the file.
+        if contentType == .file, let path = firstFilePath {
+            return (path as NSString).lastPathComponent
+        }
         if !preview.isEmpty { return preview }
         if let title, !title.isEmpty { return title }
         switch contentType {

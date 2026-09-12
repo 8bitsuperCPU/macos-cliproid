@@ -85,6 +85,24 @@ public final class PasteCoordinator {
     /// full content — which is what keeps a 10,000-row timeline cheap.
     private func payload(for summary: ClipSummary) async -> PasteboardPayload? {
         switch summary.contentType {
+        case .file:
+            // As files, not as their paths. Pasting text produced "/Users/…/Book.xlsx" in the
+            // target app instead of the document, which is the whole point of copying a file.
+            let recorded = (try? await store.files(forClip: summary.id)) ?? []
+            var urls = recorded.map(\.url)
+            if urls.isEmpty {
+                // Older clips predate the files table; fall back to the paths in the body.
+                let text = (try? await store.fullText(id: summary.id)) ?? ""
+                urls = text.split(separator: "\n").map { URL(fileURLWithPath: String($0)) }
+            }
+            // A file that has since been moved or deleted cannot be pasted as a file; hand over
+            // the path as text rather than putting a broken reference on the pasteboard.
+            let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+            guard !existing.isEmpty else {
+                return .text(urls.map(\.path).joined(separator: "\n"))
+            }
+            return .files(existing)
+
         case .image, .screenshot:
             guard let path = summary.thumbnailPath,
                   let full = await fullImage(for: summary, thumbnailPath: path) else {

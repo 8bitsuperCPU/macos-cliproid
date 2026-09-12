@@ -19,7 +19,7 @@ public struct LibraryView: View {
     public init(store: ClipStore, environment: AppEnvironment) {
         _model = State(initialValue: LibraryViewModel(
             store: store, coordinator: environment.paste, editor: environment.externalEditor,
-            enrichment: environment.enrichment))
+            enrichment: environment.enrichment, settings: environment.settings))
         self.environment = environment
     }
 
@@ -74,6 +74,19 @@ public struct LibraryView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            if model.layout == .grid {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.grid.3x3").font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Slider(value: $model.tileSize, in: 90...320)
+                        .frame(width: 110)
+                    Image(systemName: "square.grid.2x2").font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .help("Tile size")
+            }
+        }
         ToolbarItem(placement: .primaryAction) {
             Picker("Layout", selection: $model.layout) {
                 ForEach(LibraryLayout.allCases, id: \.self) { layout in

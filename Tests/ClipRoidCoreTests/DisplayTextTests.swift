@@ -91,3 +91,33 @@ struct AutoTagsTests {
         #expect(AutoTags.tags(for: clip).isEmpty)
     }
 }
+
+@Suite("File clip display")
+struct FileDisplayTests {
+    private func fileClip(_ paths: String) -> ClipSummary {
+        ClipSummary(id: 1, uuid: UUID(), contentType: .file, preview: paths, copiedAt: Date())
+    }
+
+    /// A card is far too narrow for /Users/me/Documents/Work/…, and the path is the least useful
+    /// part of it anyway.
+    @Test("A file clip shows its name, not its path")
+    func showsFilename() {
+        #expect(fileClip("/Users/me/Documents/Quarterly Report.xlsx").displayText
+                == "Quarterly Report.xlsx")
+    }
+
+    @Test("Several files show the first one's name")
+    func showsFirstOfMany() {
+        #expect(fileClip("/tmp/a.csv\n/tmp/b.csv").displayText == "a.csv")
+    }
+
+    @Test("The full path is still available for opening the file")
+    func keepsFullPath() {
+        #expect(fileClip("/tmp/a.csv\n/tmp/b.csv").firstFilePath == "/tmp/a.csv")
+    }
+
+    @Test("A file clip with no path still says something")
+    func emptyFileClip() {
+        #expect(fileClip("").displayText == "File")
+    }
+}

@@ -1,5 +1,6 @@
 import Foundation
 import ClipRoidCore
+import UniformTypeIdentifiers
 import os.log
 
 /// The only way anything reaches the clip database.
@@ -91,7 +92,7 @@ public actor ClipStore {
             return try await promote(id: existing.id, at: clip.copiedAt)
         }
 
-        var thumbPath: String?
+        let thumbPath: String? = nil
         var imagePath: String?
         var textBlobPath: String?
         var body = clip.body
@@ -132,6 +133,10 @@ public actor ClipStore {
             ]
         )
 
+        if !clip.fileURLs.isEmpty {
+            try await recordFiles(clip.fileURLs, clipId: id)
+        }
+
         let summary = ClipSummary(
             id: id,
             uuid: clip.uuid,
@@ -148,6 +153,43 @@ public actor ClipStore {
         )
         publish(.inserted(summary))
         return summary
+    }
+
+    /// Records a file clip's members, with the real size and type of each.
+    ///
+    /// The paths also live in `body` so they are searchable, but this is what makes a file clip
+    /// something the app can reason about — size, kind, and whether the file is still there.
+    private func recordFiles(_ urls: [URL], clipId: Int64) async throws {
+        for (index, url) in urls.enumerated() {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .typeIdentifierKey])
+            try await db.run(
+                """
+                INSERT OR REPLACE INTO files (clip_id, ordinal, path, size_bytes, uti)
+                VALUES (?,?,?,?,?);
+                """,
+                [.int(clipId), .int(index), .text(url.path),
+                 values?.fileSize.map { SQLValue.int(Int64($0)) } ?? .null,
+                 .optional(values?.typeIdentifier)])
+        }
+    }
+
+    public struct ClipFile: Sendable, Equatable {
+        public var url: URL
+        public var sizeBytes: Int64?
+        public var uti: String?
+    }
+
+    /// The files belonging to a clip, in the order they were copied.
+    public func files(forClip id: Int64) async throws -> [ClipFile] {
+        try await db.query(
+            "SELECT path, size_bytes, uti FROM files WHERE clip_id = ? ORDER BY ordinal;",
+            [.int(id)]
+        ).compactMap { row in
+            guard let path = row.string(0) else { return nil }
+            return ClipFile(url: URL(fileURLWithPath: path),
+                            sizeBytes: row.isNull(1) ? nil : row.int64(1),
+                            uti: row.string(2))
+        }
     }
 
     @discardableResult
@@ -578,16 +620,28 @@ public actor ClipStore {
 
     // MARK: - Facets
 
-    /// Apps that have actually produced clips, newest first, for the Library's app filter.
+    /// An app that has produced clips, for the Library's app filter.
+    ///
+    /// A struct rather than a labelled tuple. Tuples returned across an actor boundary are fragile
+    /// — adding a second such method caused this one to crash inside the runtime's tuple handling
+    /// with a bogus "Double cannot be converted to Int64", in code that had not been touched. A
+    /// struct is clearer at the call site anyway.
+    public struct SourceApp: Sendable, Equatable {
+        public var bundleId: String
+        public var name: String
+        public var count: Int
+    }
+
+    /// Apps that have actually produced clips, most prolific first, for the Library's app filter.
     /// Served by `idx_clips_app_time`.
-    public func sourceApps() async throws -> [(bundleId: String, name: String, count: Int)] {
+    public func sourceApps() async throws -> [SourceApp] {
         try await db.query(
             """
             SELECT source_app_bundle_id, COALESCE(MAX(source_app_name), ''), COUNT(*)
             FROM clips WHERE source_app_bundle_id IS NOT NULL
             GROUP BY source_app_bundle_id ORDER BY COUNT(*) DESC;
             """
-        ).map { (bundleId: $0.string(0) ?? "", name: $0.string(1) ?? "", count: $0.int(2)) }
+        ).map { SourceApp(bundleId: $0.string(0) ?? "", name: $0.string(1) ?? "", count: $0.int(2)) }
     }
 
     /// Counts per content type, for the filter chips.
@@ -599,14 +653,22 @@ public actor ClipStore {
         return counts
     }
 
-    public func counts() async throws -> (total: Int, pinned: Int, favorites: Int, secrets: Int) {
+    public struct Counts: Sendable, Equatable {
+        public var total: Int
+        public var pinned: Int
+        public var favorites: Int
+        public var secrets: Int
+    }
+
+    public func counts() async throws -> Counts {
         let row = try await db.query("""
             SELECT COUNT(*),
                    SUM(is_pinned), SUM(is_favorite),
                    SUM(CASE WHEN sensitivity = 2 THEN 1 ELSE 0 END)
             FROM clips;
             """).first
-        return (row?.int(0) ?? 0, row?.int(1) ?? 0, row?.int(2) ?? 0, row?.int(3) ?? 0)
+        return Counts(total: row?.int(0) ?? 0, pinned: row?.int(1) ?? 0,
+                      favorites: row?.int(2) ?? 0, secrets: row?.int(3) ?? 0)
     }
 
     /// Bulk insert for fixtures and backfills.
@@ -766,15 +828,21 @@ public actor ClipStore {
     }
 
     /// Everything a rule needs to be evaluated against, for retroactive application.
-    public func ruleCandidates(limit: Int, after id: Int64) async throws -> [(id: Int64, candidate: SmartFilterEngine.Candidate)] {
+    public struct RuleCandidate: Sendable {
+        public var id: Int64
+        public var candidate: SmartFilterEngine.Candidate
+    }
+
+    public func ruleCandidates(limit: Int, after id: Int64) async throws -> [RuleCandidate] {
         try await db.query(
             """
             SELECT id, content_type, source_app_bundle_id, source_app_name, body, ocr_text
             FROM clips WHERE id > ? ORDER BY id LIMIT ?;
             """, [.int(id), .int(limit)]
         ).map { row in
-            (id: row.int64(0),
-             candidate: SmartFilterEngine.Candidate(
+            RuleCandidate(
+                id: row.int64(0),
+                candidate: SmartFilterEngine.Candidate(
                 contentType: ClipContentType(rawValue: row.int(1)) ?? .unknown,
                 sourceAppBundleId: row.string(2),
                 sourceAppName: row.string(3),
@@ -816,13 +884,18 @@ public actor ClipStore {
     }
 
     /// Tag frequencies for the cloud (spec §4.6), most used first.
-    public func tagCounts(limit: Int = 40) async throws -> [(name: String, count: Int)] {
+    public struct TagCount: Sendable, Equatable {
+        public var name: String
+        public var count: Int
+    }
+
+    public func tagCounts(limit: Int = 40) async throws -> [TagCount] {
         try await db.query(
             """
             SELECT t.name, COUNT(*) FROM tags t JOIN clip_tags ct ON ct.tag_id = t.id
             GROUP BY t.id ORDER BY COUNT(*) DESC, t.name LIMIT ?;
             """, [.int(limit)]
-        ).map { (name: $0.string(0) ?? "", count: $0.int(1)) }
+        ).map { TagCount(name: $0.string(0) ?? "", count: $0.int(1)) }
     }
 
     public func clips(withTag name: String, limit: Int = 200) async throws -> [ClipSummary] {

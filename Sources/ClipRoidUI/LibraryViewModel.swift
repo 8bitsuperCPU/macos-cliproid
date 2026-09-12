@@ -34,18 +34,24 @@ public final class LibraryViewModel {
     public private(set) var isLoadingPage = false
     public private(set) var hasMore = true
 
-    public var layout: LibraryLayout = .timeline
+    public var layout: LibraryLayout = .grid {
+        didSet { settings?.libraryLayout = layout.rawValue }
+    }
+    /// Tile width in the grid, remembered across launches.
+    public var tileSize: Double = 150 {
+        didSet { settings?.tileSize = tileSize }
+    }
     public var section: LibrarySection = .all { didSet { reloadFromScratch() } }
     public var searchText: String = "" { didSet { scheduleSearch() } }
     /// Chips are additive with the sidebar section; both narrow the same query.
     public var activeTypes: Set<ClipContentType> = [] { didSet { reloadFromScratch() } }
 
     public var selection: Set<Int64> = []
-    public private(set) var sourceApps: [(bundleId: String, name: String, count: Int)] = []
+    public private(set) var sourceApps: [ClipStore.SourceApp] = []
     public private(set) var categories: [ClipCategory] = []
     public private(set) var categoryCounts: [Int64: Int] = [:]
     public private(set) var shortcuts: [String: Int64] = [:]
-    public private(set) var tagCounts: [(name: String, count: Int)] = []
+    public private(set) var tagCounts: [ClipStore.TagCount] = []
     public private(set) var reapplyProgress: Int?
     public private(set) var typeCounts: [ClipContentType: Int] = [:]
     public private(set) var totalCount = 0
@@ -55,6 +61,7 @@ public final class LibraryViewModel {
     private let coordinator: PasteCoordinator?
     private let editor: ExternalEditor?
     private let enrichment: EnrichmentPipeline?
+    private let settings: SettingsStore?
     private var observation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -65,11 +72,17 @@ public final class LibraryViewModel {
     private let pageSize = 200
 
     public init(store: ClipStore, coordinator: PasteCoordinator? = nil,
-                editor: ExternalEditor? = nil, enrichment: EnrichmentPipeline? = nil) {
+                editor: ExternalEditor? = nil, enrichment: EnrichmentPipeline? = nil,
+                settings: SettingsStore? = nil) {
         self.store = store
         self.coordinator = coordinator
         self.editor = editor
         self.enrichment = enrichment
+        self.settings = settings
+        if let settings {
+            self.layout = LibraryLayout(rawValue: settings.libraryLayout) ?? .grid
+            self.tileSize = settings.tileSize
+        }
     }
 
     public var selectedClips: [ClipSummary] {

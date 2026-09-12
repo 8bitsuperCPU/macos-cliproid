@@ -5,7 +5,10 @@ import ClipRoidCore
 struct ClipGridView: View {
     @Bindable var model: LibraryViewModel
 
-    private let columns = [GridItem(.adaptive(minimum: 130, maximum: 200), spacing: 10)]
+    /// Derived from the slider, so the grid reflows as it moves.
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: model.tileSize, maximum: model.tileSize * 1.35), spacing: 10)]
+    }
 
     var body: some View {
         ScrollView {
@@ -27,7 +30,7 @@ struct ClipGridView: View {
 
     private func card(_ clip: ClipSummary) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            ClipThumbnail(clip: clip, model: model, side: 110)
+            ClipThumbnail(clip: clip, model: model, side: model.tileSize * 0.72)
                 .frame(maxWidth: .infinity)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
 

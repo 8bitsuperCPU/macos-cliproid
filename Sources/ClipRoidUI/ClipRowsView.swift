@@ -105,7 +105,10 @@ struct ClipThumbnail: View {
 
     var body: some View {
         Group {
-            if let hex = clip.colorHex {
+            // A file gets its own icon from the system, so a spreadsheet looks like a spreadsheet.
+            if clip.contentType == .file, let path = clip.firstFilePath {
+                FileIcon(path: path, side: side)
+            } else if let hex = clip.colorHex {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color(hex: hex) ?? .gray)
                     .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.separator, lineWidth: 0.5))
