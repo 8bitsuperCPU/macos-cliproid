@@ -485,17 +485,12 @@ public final class LibraryViewModel {
     /// here, and claiming Safari copied it would be a lie the source filter would then act on.
     public func saveSampledColour(_ hex: String, sampledFrom source: ClipSummary?) {
         Task {
-            let clip = CapturedClip(
-                contentType: .color,
-                contentHash: Dedupe.hash(hex),
-                body: hex,
-                title: source?.sourceAppName.map { "Sampled from an image in \($0)" }
+            let clip = ColorClip.captured(
+                hex: hex,
+                origin: source?.sourceAppName.map { "Sampled from an image in \($0)" }
                     ?? "Sampled from an image",
-                sourceAppBundleId: Bundle.main.bundleIdentifier,
-                sourceAppName: "ClipDroid",
-                contentSizeBytes: Int64(hex.utf8.count),
-                colorHex: hex,
-                enrichmentState: .notApplicable)
+                appBundleId: Bundle.main.bundleIdentifier,
+                appName: "ClipDroid")
             do { _ = try await store.insert(clip) }
             catch { errorMessage = error.localizedDescription }
         }

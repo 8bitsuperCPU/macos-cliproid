@@ -83,6 +83,7 @@ struct AboutView: View {
             shortcut("Point at the screen edge", "Open the shelf. Click a card to paste it, or drag it into any app.")
             shortcut("Hover a card", "See a preview. Pin it to keep it open.")
             shortcut("Double-click an image", "Fill the window with it. Click anywhere in it to read a colour.")
+            shortcut("⌃⌘P", "Pick a colour from anywhere on screen — it is saved as a clip.")
             shortcut("Right-click a clip", "Copy, edit in another app, read text out of an image, file it away.")
 
             Text("In the Library window").font(.headline).padding(.top, 6)

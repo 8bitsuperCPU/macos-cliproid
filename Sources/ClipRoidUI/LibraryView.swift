@@ -166,6 +166,15 @@ public struct LibraryView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            Button {
+                Task { await environment.tools.pickColour() }
+            } label: {
+                Label("Pick a Colour", systemImage: "eyedropper")
+            }
+            .help("Pick a colour from anywhere on screen (⌃⌘P)")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
             if model.layout == .grid {
                 HStack(spacing: 6) {
                     Image(systemName: "square.grid.3x3").font(.caption2)

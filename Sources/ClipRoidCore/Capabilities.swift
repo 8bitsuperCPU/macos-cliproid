@@ -67,3 +67,14 @@ public struct SystemClock: Clock {
     public init() {}
     public func now() -> Date { Date() }
 }
+
+/// Picking a colour from anywhere on screen.
+///
+/// Worth its own capability because it needs **no permission at all**: the system loupe runs out
+/// of process, so ClipDroid never reads the screen itself. Spec §8.1 assumed Screen Recording was
+/// required here and it is not — see the plan's spec defect 4.
+@MainActor
+public protocol ColorPicking: AnyObject, Sendable {
+    /// The picked colour as `#RRGGBB`, or nil if the user pressed Escape.
+    func pickColor() async -> String?
+}

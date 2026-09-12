@@ -234,6 +234,11 @@ struct ClipRoidApp: App {
                 isShelfShown.toggle()
             }
 
+            Button("Pick a Colour…") {
+                Task { await environment.tools.pickColour() }
+            }
+            .keyboardShortcut("p", modifiers: [.control, .command])
+
             Button("Open ClipDroid") { openLibraryWindow() }
                 .keyboardShortcut("o")
             Divider()

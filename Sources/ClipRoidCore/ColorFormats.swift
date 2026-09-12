@@ -124,3 +124,26 @@ public enum TextCaseTransform: String, CaseIterable, Sendable {
         return result
     }
 }
+
+/// Builds the clip a picked or sampled colour becomes.
+///
+/// Shared by the screen picker and the image eyedropper so the two cannot drift into filing the
+/// same thing differently — one of them setting `colorHex` and the other not would mean a colour
+/// that looks right but never appears under the Colours filter.
+public enum ColorClip {
+    /// - Parameter origin: how the colour was obtained, shown as the clip's title.
+    public static func captured(
+        hex: String, origin: String, appBundleId: String?, appName: String
+    ) -> CapturedClip {
+        CapturedClip(
+            contentType: .color,
+            contentHash: Dedupe.hash(hex),
+            body: hex,
+            title: origin,
+            sourceAppBundleId: appBundleId,
+            sourceAppName: appName,
+            contentSizeBytes: Int64(hex.utf8.count),
+            colorHex: hex,
+            enrichmentState: .notApplicable)
+    }
+}

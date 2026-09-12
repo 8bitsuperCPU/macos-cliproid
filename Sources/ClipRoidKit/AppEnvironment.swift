@@ -23,6 +23,7 @@ public final class AppEnvironment {
     public let shortcuts: ShortcutExpander
     public let externalEditor: ExternalEditor
     public let paste: PasteCoordinator
+    public let tools: ToolsService
     private let deliverer = PasteDeliverer()
 
     /// Set by the UI layer, which owns the panel. Kit deliberately does not import SwiftUI, so the
@@ -73,9 +74,12 @@ public final class AppEnvironment {
         self.externalEditor = ExternalEditor(store: store)
         self.shortcuts = ShortcutExpander(
             store: store, observer: KeystrokeObserver(), pasteboard: pasteboard)
-        self.paste = PasteCoordinator(
+        let paste = PasteCoordinator(
             store: store, pasteboard: pasteboard,
             deliverer: deliverer, frontmost: WorkspaceFrontmostAppProvider())
+        self.paste = paste
+        self.tools = ToolsService(
+            store: store, sampler: SystemColorSampler(), paste: paste)
     }
 
     /// Registers the global hotkeys. Separate from `start()` because the UI must have installed its
