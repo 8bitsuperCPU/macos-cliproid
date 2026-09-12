@@ -47,6 +47,20 @@ public final class LibraryViewModel {
     public var activeTypes: Set<ClipContentType> = [] { didSet { reloadFromScratch() } }
 
     public var selection: Set<Int64> = []
+    /// The keyboard cursor: the clip the arrow keys are currently on.
+    ///
+    /// Distinct from `selection` because they diverge under shift-extension — the cursor is the
+    /// moving end of the range while the anchor stays put — and because a selection made with the
+    /// mouse still needs somewhere for the first arrow key to start from.
+    public var focusedId: Int64?
+    /// The fixed end of a shift-extended range.
+    private var selectionAnchor: Int64?
+    /// How many columns the grid is showing, so up and down move by a row rather than an item.
+    ///
+    /// Set by the grid from its measured width; row layouts leave it at 1.
+    public var gridColumnCount: Int = 1
+    /// Clips awaiting the user's confirmation to delete. Non-nil presents the alert.
+    public var pendingDelete: [ClipSummary]?
     /// When true the detail pane takes the whole window instead of the right-hand column.
     public var isDetailExpanded = false
     public private(set) var sourceApps: [ClipStore.SourceApp] = []
@@ -222,6 +236,10 @@ public final class LibraryViewModel {
             let set = Set(ids)
             clips.removeAll { set.contains($0.id) }
             selection.subtract(set)
+            // The cursor must not be left on a clip that no longer exists, or the next arrow key
+            // finds no index to move from and navigation appears dead.
+            if let focusedId, set.contains(focusedId) { self.focusedId = nil }
+            if let anchor = selectionAnchor, set.contains(anchor) { selectionAnchor = nil }
             totalCount = max(0, totalCount - ids.count)
             // Expanded mode shows one clip and hides the list. Deleting that clip would leave an
             // empty pane with no visible way back to anything.
@@ -259,6 +277,131 @@ public final class LibraryViewModel {
 
     public func deleteSelection() {
         delete(ids: Array(selection))
+    }
+
+    // MARK: - Keyboard navigation and selection
+
+    private var focusedIndex: Int? {
+        guard let focusedId else { return nil }
+        return clips.firstIndex { $0.id == focusedId }
+    }
+
+    /// Moves the cursor, optionally dragging a selection along with it.
+    ///
+    /// Returns false when the move is impossible, so the caller can leave the key unhandled
+    /// rather than swallowing it at the edges of the grid.
+    @discardableResult
+    public func moveFocus(_ direction: GridNavigation.Direction, extending: Bool = false) -> Bool {
+        guard !clips.isEmpty else { return false }
+
+        // An arrow key with nothing focused starts at the top rather than doing nothing, which is
+        // what makes the keyboard usable without touching the mouse first.
+        guard let current = focusedIndex else {
+            focus(clips[0], extending: false)
+            return true
+        }
+        guard let next = GridNavigation.destination(
+            from: current, count: clips.count,
+            columns: layout == .grid ? gridColumnCount : 1,
+            direction: direction) else { return false }
+
+        focus(clips[next], extending: extending)
+        return true
+    }
+
+    private func focus(_ clip: ClipSummary, extending: Bool) {
+        focusedId = clip.id
+        if extending {
+            let anchor = selectionAnchor ?? clip.id
+            selectionAnchor = anchor
+            extendSelection(toIndexOf: clip.id, from: anchor)
+        } else {
+            selection = [clip.id]
+            selectionAnchor = clip.id
+        }
+    }
+
+    /// Plain click: the clip becomes the whole selection and the new anchor.
+    public func selectOnly(_ clip: ClipSummary) {
+        selection = [clip.id]
+        focusedId = clip.id
+        selectionAnchor = clip.id
+    }
+
+    /// Command-click: add or remove one clip without disturbing the rest.
+    public func toggleSelection(_ clip: ClipSummary) {
+        if selection.contains(clip.id) {
+            selection.remove(clip.id)
+        } else {
+            selection.insert(clip.id)
+        }
+        focusedId = clip.id
+        selectionAnchor = clip.id
+    }
+
+    /// Shift-click: select everything between the anchor and this clip.
+    public func extendSelection(to clip: ClipSummary) {
+        guard let anchor = selectionAnchor ?? focusedId else {
+            selectOnly(clip)
+            return
+        }
+        selectionAnchor = anchor
+        focusedId = clip.id
+        extendSelection(toIndexOf: clip.id, from: anchor)
+    }
+
+    private func extendSelection(toIndexOf id: Int64, from anchor: Int64) {
+        guard let start = clips.firstIndex(where: { $0.id == anchor }),
+              let end = clips.firstIndex(where: { $0.id == id }) else { return }
+        selection = Set(GridNavigation.range(from: start, to: end).map { clips[$0].id })
+    }
+
+    /// Everything currently listed — which, with the type chips or sidebar applied, is how the
+    /// user selects all images: filter to Images, then Select All.
+    public func selectAll() {
+        selection = Set(clips.map(\.id))
+        selectionAnchor = clips.first?.id
+        if focusedId == nil { focusedId = clips.first?.id }
+    }
+
+    public func clearSelection() {
+        selection = []
+        selectionAnchor = nil
+        focusedId = nil
+    }
+
+    /// The clip the keyboard is on, falling back to a lone mouse selection.
+    public var focusedClip: ClipSummary? {
+        if let focusedId, let clip = clips.first(where: { $0.id == focusedId }) { return clip }
+        return singleSelection
+    }
+
+    // MARK: - Delete, with confirmation
+
+    /// Deleting is not undoable, so it asks first — and says how many, because a Delete keypress
+    /// after a Select All is exactly the mistake worth catching.
+    public func requestDeleteSelection() {
+        let clips = selectedClips
+        guard !clips.isEmpty else { return }
+        pendingDelete = clips
+    }
+
+    /// Confirmation for a single clip deleted from a menu, so every delete in the Library window
+    /// asks — a context-menu Delete that acted immediately while the Delete key asked first would
+    /// be the more dangerous of the two.
+    public func requestDelete(_ clip: ClipSummary) {
+        pendingDelete = [clip]
+    }
+
+    public func confirmPendingDelete() {
+        guard let pending = pendingDelete else { return }
+        pendingDelete = nil
+        delete(ids: pending.map(\.id))
+        clearSelection()
+    }
+
+    public func cancelPendingDelete() {
+        pendingDelete = nil
     }
 
     public func togglePin(_ summary: ClipSummary) {

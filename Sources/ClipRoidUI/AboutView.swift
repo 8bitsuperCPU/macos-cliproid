@@ -83,6 +83,15 @@ struct AboutView: View {
             shortcut("Double-click an image", "Fill the window with it. Click anywhere in it to read a colour.")
             shortcut("Right-click a clip", "Copy, edit in another app, read text out of an image, file it away.")
 
+            Text("In the Library window").font(.headline).padding(.top, 6)
+
+            shortcut("Arrow keys", "Move between clips. Hold Shift to select a run of them.")
+            shortcut("Space", "Open the preview. Escape closes it.")
+            shortcut("⌃Space", "Open the clip's menu without the mouse.")
+            shortcut("⌘A", "Select everything listed — filter to Images first to select just those.")
+            shortcut("⌘-click / ⇧-click", "Add one clip to the selection, or extend it.")
+            shortcut("Delete", "Delete the selection, after confirming.")
+
             Text("Search accepts filters: dashboard @screenshot @today, or @Figma, or @favourite.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

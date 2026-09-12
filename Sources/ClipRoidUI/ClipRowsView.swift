@@ -10,41 +10,47 @@ struct ClipRowsView: View {
     var dense: Bool
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(model.clips) { clip in
-                    LibraryClipRow(
-                        clip: clip, dense: dense,
-                        isSelected: model.selection.contains(clip.id),
-                        model: model)
-                        .onTapGesture { select(clip) }
-                        .contextMenu { ClipContextMenu(clip: clip, model: model) }
-                        // Drag out to any app (spec §4.12). Always available, needs no permission,
-                        // and is the most robust delivery path for images and files.
-                        .draggable(clip.preview)
-                        .onAppear {
-                            if clip.id == model.clips.last?.id {
-                                Task { await model.loadNextPage() }
+        ScrollViewReader { scroller in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(model.clips) { clip in
+                        LibraryClipRow(
+                            clip: clip, dense: dense,
+                            isSelected: model.selection.contains(clip.id),
+                            isFocused: model.focusedId == clip.id,
+                            model: model)
+                            .id(clip.id)
+                            .modifier(ClipSelectionGestures(clip: clip, model: model))
+                            .contextMenu { ClipContextMenu(clip: clip, model: model) }
+                            // Drag out to any app (spec §4.12). Always available, needs no
+                            // permission, and is the most robust delivery path for images and
+                            // files.
+                            .draggable(clip.preview)
+                            .background {
+                                if model.focusedId == clip.id {
+                                    GeometryReader { geo in
+                                        Color.clear.preference(
+                                            key: FocusedCardFrameKey.self,
+                                            value: geo.frame(in: .global))
+                                    }
+                                }
                             }
-                        }
-                    Divider().opacity(dense ? 0.3 : 0.15)
-                }
-                if model.isLoadingPage {
-                    ProgressView().padding(12)
+                            .onAppear {
+                                if clip.id == model.clips.last?.id {
+                                    Task { await model.loadNextPage() }
+                                }
+                            }
+                        Divider().opacity(dense ? 0.3 : 0.15)
+                    }
+                    if model.isLoadingPage {
+                        ProgressView().padding(12)
+                    }
                 }
             }
-        }
-    }
-
-    private func select(_ clip: ClipSummary) {
-        if NSEvent.modifierFlags.contains(.command) {
-            if model.selection.contains(clip.id) {
-                model.selection.remove(clip.id)
-            } else {
-                model.selection.insert(clip.id)
+            .onChange(of: model.focusedId) { _, id in
+                guard let id else { return }
+                withAnimation(.easeOut(duration: 0.12)) { scroller.scrollTo(id, anchor: .center) }
             }
-        } else {
-            model.selection = [clip.id]
         }
     }
 }
@@ -53,6 +59,9 @@ struct LibraryClipRow: View {
     let clip: ClipSummary
     var dense: Bool
     var isSelected: Bool
+    /// The keyboard cursor, drawn separately from the selection so a multi-clip selection still
+    /// shows which row the arrow keys will move from.
+    var isFocused: Bool = false
     @Bindable var model: LibraryViewModel
 
     var body: some View {
@@ -87,6 +96,11 @@ struct LibraryClipRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, dense ? 4 : 8)
         .background(isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear))
+        .overlay {
+            if isFocused {
+                RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
         .contentShape(Rectangle())
     }
 }
@@ -203,7 +217,7 @@ struct ClipContextMenu: View {
         Divider()
 
         Button("Delete", systemImage: "trash", role: .destructive) {
-            model.delete(ids: [clip.id])
+            model.requestDelete(clip)
         }
     }
 

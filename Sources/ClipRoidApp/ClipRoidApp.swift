@@ -17,9 +17,71 @@ import ClipRoidCore
 /// an ordinary thing for a user to do, and makes this the single most likely way to break the app.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (@MainActor () async -> Void)?
+    /// Supplies the current preference. A closure rather than a stored copy, so toggling the
+    /// setting takes effect without a restart.
+    var shouldConfirmQuit: (@MainActor () -> Bool)?
+    /// Records a "don't ask again" tick back into Settings.
+    var suppressFutureConfirmations: (@MainActor () -> Void)?
+    /// Set once the user has said yes, so one quit is never confirmed twice.
+    private var isQuitConfirmed = false
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Cmd+Q matters more here than in an ordinary app: quitting stops capture and kills the
+    /// global hotkey, and since ClipDroid usually has no window in front, the keystroke is easy
+    /// to fire while aiming at something else. So it offers what the user probably meant —
+    /// close the window, keep running — next to actually quitting.
+    ///
+    /// "Close Window" returns `.terminateCancel`, which is what keeps the process alive;
+    /// `applicationShouldTerminateAfterLastWindowClosed` above then stops the closing itself
+    /// from quitting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isQuitConfirmed else { return .terminateNow }
+        guard shouldConfirmQuit?() ?? true else { return .terminateNow }
+        // Never hold up a logout, restart or shutdown behind a modal the user may never see.
+        guard !isSystemInitiated else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = "Quit ClipDroid?"
+        alert.informativeText = "Quitting stops clipboard capture and disables the Ctrl+Cmd+V shortcut until you open ClipDroid again. Closing the window leaves it running in the menu bar."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Close Window")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't ask again"
+
+        let response = alert.runModal()
+        if alert.suppressionButton?.state == .on { suppressFutureConfirmations?() }
+
+        switch response {
+        case .alertFirstButtonReturn:
+            isQuitConfirmed = true
+            return .terminateNow
+        case .alertSecondButtonReturn:
+            for window in NSApplication.shared.windows
+            where window.isVisible && window.canBecomeMain {
+                window.performClose(nil)
+            }
+            return .terminateCancel
+        default:
+            return .terminateCancel
+        }
+    }
+
+    /// True when macOS, not the user, asked for the quit — a logout, restart or shutdown. Those
+    /// arrive as an Apple event carrying a reason code, and blocking one behind a dialog is how
+    /// an app becomes the reason a machine will not restart.
+    private var isSystemInitiated: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == kAEQuitApplication,
+              let reason = event.attributeDescriptor(
+                forKeyword: AEKeyword(kAEQuitReason))?.enumCodeValue else { return false }
+        let systemReasons: [OSType] = [
+            OSType(kAELogOut), OSType(kAEReallyLogOut), OSType(kAEShowRestartDialog),
+            OSType(kAERestart), OSType(kAEShowShutdownDialog), OSType(kAEShutDown)]
+        return systemReasons.contains(reason)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -128,6 +190,12 @@ struct ClipRoidApp: App {
                     await environment.start()
                     installQuickPaste()
                     installShelf()
+                    // Read through to Settings each time rather than captured once, so the
+                    // toggle takes effect immediately.
+                    appDelegate.shouldConfirmQuit = { environment.settings.confirmOnQuit }
+                    appDelegate.suppressFutureConfirmations = {
+                        environment.settings.confirmOnQuit = false
+                    }
                 }
         }
         .defaultSize(width: 1040, height: 700)

@@ -434,7 +434,7 @@ struct ClipDetailPane: View {
             Spacer()
 
             Button("Delete", systemImage: "trash", role: .destructive) {
-                model.delete(ids: [clip.id])
+                model.requestDelete(clip)
             }
         }
         .labelStyle(.iconOnly)

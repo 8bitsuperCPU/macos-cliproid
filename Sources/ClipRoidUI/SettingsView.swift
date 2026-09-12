@@ -42,6 +42,12 @@ public struct SettingsView: View {
         Form {
             Toggle("Launch ClipDroid at login", isOn: $settings.launchAtLogin)
 
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Ask before quitting", isOn: $settings.confirmOnQuit)
+                Text("Cmd+Q offers to close the window instead, which leaves capture and the Ctrl+Cmd+V shortcut running.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section {
                 Toggle("Paste automatically after choosing a clip", isOn: $settings.autoPasteEnabled)
                     .onChange(of: settings.autoPasteEnabled) { _, _ in onPasteChange() }

@@ -20,6 +20,10 @@ public final class SettingsStore {
         self.storedShelfItemCount = Self.clampItemCount(
             defaults.object(forKey: Key.shelfItemCount) as? Int ?? 10)
         self.launchAtLogin = defaults.bool(forKey: Key.launchAtLogin)
+        // Default on: Cmd+Q on a clipboard manager stops capture and kills the global hotkey,
+        // and the app has no window open half the time, so the keystroke is easy to fire by
+        // accident while aiming at the app in front.
+        self.confirmOnQuit = defaults.object(forKey: Key.confirmOnQuit) as? Bool ?? true
         self.autoPasteEnabled = defaults.object(forKey: Key.autoPaste) as? Bool ?? true
         self.captureImages = defaults.object(forKey: Key.captureImages) as? Bool ?? true
         self.captureFiles = defaults.object(forKey: Key.captureFiles) as? Bool ?? true
@@ -64,6 +68,7 @@ public final class SettingsStore {
         static let shelfPosition = "shelf.position"
         static let shelfItemCount = "shelf.itemCount"
         static let launchAtLogin = "general.launchAtLogin"
+        static let confirmOnQuit = "general.confirmOnQuit"
         static let autoPaste = "paste.autoPaste"
         static let captureImages = "capture.images"
         static let captureFiles = "capture.files"
@@ -133,6 +138,11 @@ public final class SettingsStore {
             defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
             LaunchAtLogin.set(launchAtLogin)
         }
+    }
+
+    /// Ask, on Cmd+Q, whether to quit or merely close the window.
+    public var confirmOnQuit: Bool {
+        didSet { defaults.set(confirmOnQuit, forKey: Key.confirmOnQuit) }
     }
 
     public var autoPasteEnabled: Bool {

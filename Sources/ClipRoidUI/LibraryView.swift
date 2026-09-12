@@ -16,6 +16,8 @@ public struct LibraryView: View {
     /// Remembered across launches.
     @AppStorage("library.detailWidth") private var detailWidth: Double = 340
     @State private var dragStartWidth: Double?
+    /// Where the keyboard cursor is on screen, so Ctrl-Space opens its menu at the right card.
+    @State private var focusedCardFrame: CGRect?
 
     public init(store: ClipStore, environment: AppEnvironment) {
         _model = State(initialValue: LibraryViewModel(
@@ -29,6 +31,43 @@ public struct LibraryView: View {
             LibrarySidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
         } detail: {
+            detailContent
+                // On the whole detail area rather than just the clip list: in expanded mode the
+                // list is not rendered at all, and Escape — the way out of expanded mode — would
+                // have had nowhere to land.
+                .libraryKeyboard(
+                    model: model,
+                    focusedCardFrame: focusedCardFrame,
+                    menuContent: { AnyView(ClipContextMenu(clip: $0, model: model)) })
+                .onPreferenceChange(FocusedCardFrameKey.self) { focusedCardFrame = $0 }
+                .alert(deleteAlertTitle, isPresented: deleteAlertBinding) {
+                    Button("Cancel", role: .cancel) { model.cancelPendingDelete() }
+                    Button("Delete", role: .destructive) { model.confirmPendingDelete() }
+                } message: {
+                    Text("This cannot be undone.")
+                }
+        }
+        .persistentWindowFrame("ClipDroidLibrary", minSize: NSSize(width: 760, height: 460))
+        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
+        .toolbar { toolbarContent }
+        .task { model.start() }
+    }
+
+    /// Presented while `pendingDelete` holds clips; dismissing it clears them.
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { model.pendingDelete != nil },
+            set: { if !$0 { model.cancelPendingDelete() } })
+    }
+
+    private var deleteAlertTitle: String {
+        let count = model.pendingDelete?.count ?? 0
+        return count == 1 ? "Delete this clip?" : "Delete \(count) clips?"
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        Group {
             // Expanded, the detail pane takes the whole pane rather than a column, so a
             // double-clicked image gets the room it needs.
             if model.isDetailExpanded, let selected = model.singleSelection {
@@ -56,10 +95,6 @@ public struct LibraryView: View {
                 }
             }
         }
-        .persistentWindowFrame("ClipDroidLibrary", minSize: NSSize(width: 760, height: 460))
-        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
-        .toolbar { toolbarContent }
-        .task { model.start() }
     }
 
     /// Keeps the pane usable whatever the window size — a remembered 600pt on a narrow window
@@ -160,7 +195,7 @@ public struct LibraryView: View {
                     Button("Favourite", systemImage: "star") { model.setFavoriteOnSelection(true) }
                     Divider()
                     Button("Delete \(model.selection.count) clips", systemImage: "trash",
-                           role: .destructive) { model.deleteSelection() }
+                           role: .destructive) { model.requestDeleteSelection() }
                 } label: {
                     Label("\(model.selection.count) selected", systemImage: "checklist")
                 }
