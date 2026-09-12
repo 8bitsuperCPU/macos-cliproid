@@ -281,7 +281,7 @@ public final class SettingsStore {
     }
 
     public nonisolated static func clampPreviewCloseDelay(_ value: Double) -> Double {
-        min(max(value, 1.0), 3.0)
+        min(max(value, 1.0), 10.0)
     }
 
     /// An animated gradient on the collapsed bar.

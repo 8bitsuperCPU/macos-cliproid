@@ -162,7 +162,7 @@ public struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Slider(value: $settings.previewCloseDelay, in: 1...3, step: 0.5) {
+                    Slider(value: $settings.previewCloseDelay, in: 1...10, step: 0.5) {
                         Text("Stays open for")
                     }
                     Text(String(format: "%.1f seconds after the pointer leaves", settings.previewCloseDelay))

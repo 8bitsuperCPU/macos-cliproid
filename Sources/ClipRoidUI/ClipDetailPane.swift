@@ -119,6 +119,9 @@ struct ClipDetailPane: View {
                 image.resizable().aspectRatio(contentMode: .fit)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .contentShape(Rectangle())
+                    // Only when there is something to sample — an eyedropper over an image that
+                    // cannot be read would promise something the click does not deliver.
+                    .cursor(imageData != nil ? .eyedropper : .arrow)
                     .onTapGesture { location in
                         sample(at: location, in: proxy.size)
                     }

@@ -219,7 +219,7 @@ struct PreviewCloseDelayTests {
     /// Without a delay the preview is unreachable: moving towards it necessarily leaves the card
     /// that opened it, so it closes before it can be clicked.
     @Test("Delay is clamped to a range that makes the preview reachable", arguments: [
-        (0.0, 1.0), (0.5, 1.0), (1.0, 1.0), (1.5, 1.5), (3.0, 3.0), (10.0, 3.0),
+        (0.0, 1.0), (0.5, 1.0), (1.0, 1.0), (1.5, 1.5), (3.0, 3.0), (10.0, 10.0), (60.0, 10.0),
     ])
     func clampsDelay(input: Double, expected: Double) {
         #expect(abs(SettingsStore.clampPreviewCloseDelay(input) - expected) < 0.0001)
