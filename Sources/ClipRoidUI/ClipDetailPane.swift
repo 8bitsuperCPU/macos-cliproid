@@ -243,7 +243,11 @@ struct ClipDetailPane: View {
 
         let scale = Double(size.width) / drawn.width
         let pixel = CGPoint(x: inDrawn.x * scale, y: inDrawn.y * scale)
-        sampledColour = PixelSampler.sample(imageData, at: pixel)
+        let picked = PixelSampler.sample(imageData, at: pixel)
+        sampledColour = picked
+        // Sampling a colour files it as a clip of its own, so it is in the history with its hex
+        // rather than only living in this panel until the selection changes.
+        if let picked { model.saveSampledColour(picked.hex, sampledFrom: clip) }
     }
 
     /// Text Vision found inside the image (spec §4.8).

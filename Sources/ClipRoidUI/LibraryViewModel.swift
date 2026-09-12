@@ -474,6 +474,33 @@ public final class LibraryViewModel {
         Task { await coordinator?.writeOnly(.text(text), originClipUUID: nil) }
     }
 
+    /// Records a colour picked out of an image as a clip of its own.
+    ///
+    /// Writing the hex to the pasteboard is not enough to get a tile: ClipDroid suppresses its
+    /// own writes, deliberately, or every paste would echo back as a new clip. So a sampled
+    /// colour has to be inserted directly, which also means it keeps `colorHex` as real metadata
+    /// rather than relying on the classifier to recognise the text later.
+    ///
+    /// Attributed to ClipDroid rather than to the app the image came from: the colour was made
+    /// here, and claiming Safari copied it would be a lie the source filter would then act on.
+    public func saveSampledColour(_ hex: String, sampledFrom source: ClipSummary?) {
+        Task {
+            let clip = CapturedClip(
+                contentType: .color,
+                contentHash: Dedupe.hash(hex),
+                body: hex,
+                title: source?.sourceAppName.map { "Sampled from an image in \($0)" }
+                    ?? "Sampled from an image",
+                sourceAppBundleId: Bundle.main.bundleIdentifier,
+                sourceAppName: "ClipDroid",
+                contentSizeBytes: Int64(hex.utf8.count),
+                colorHex: hex,
+                enrichmentState: .notApplicable)
+            do { _ = try await store.insert(clip) }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+
     /// Text already on record, without starting recognition.
     public func existingOCRText(for summary: ClipSummary) async -> String? {
         try? await store.ocrText(forClip: summary.id)

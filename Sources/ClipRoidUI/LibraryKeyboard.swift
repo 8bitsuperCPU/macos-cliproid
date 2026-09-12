@@ -125,3 +125,57 @@ enum ContextMenuPopup {
         menu.popUp(positioning: nil, at: point, in: contentView)
     }
 }
+
+/// Closes the expanded preview on Escape, wherever focus happens to be.
+///
+/// `onKeyPress` only reaches the focused view, and in expanded mode focus is easily somewhere
+/// else: the search field, an inline editor, or nothing at all after clicking the image to sample
+/// a colour. That is why Escape worked only sometimes — it depended on what the user had touched
+/// last. A window-level monitor does not care where focus landed.
+struct EscapeClosesPreview: ViewModifier {
+    @Bindable var model: LibraryViewModel
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.isDetailExpanded, initial: true) { _, expanded in
+                if expanded { install() } else { remove() }
+            }
+            .onDisappear { remove() }
+    }
+
+    private func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event }   // Escape
+
+            // Sound here, unlike the enrichment-actor case that once crashed the app: local event
+            // monitors are called synchronously on the main thread during event dispatch, so this
+            // asserts something already true. It has to be synchronous — returning nil is what
+            // swallows the key, and that decision cannot be deferred to a Task.
+            // Returns a Bool rather than the event itself only because `assumeIsolated`
+            // requires a Sendable result and NSEvent is explicitly not Sendable.
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                // While text is being edited Escape means "cancel this edit", so it is left
+                // alone; the preview is then one more press away.
+                guard !(event.window?.firstResponder is NSText) else { return false }
+                guard model.isDetailExpanded else { return false }
+                model.isDetailExpanded = false
+                return true
+            }
+            return consumed ? nil : event
+        }
+    }
+
+    private func remove() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
+extension View {
+    /// Escape leaves the expanded preview regardless of which subview has focus.
+    func escapeClosesPreview(model: LibraryViewModel) -> some View {
+        modifier(EscapeClosesPreview(model: model))
+    }
+}

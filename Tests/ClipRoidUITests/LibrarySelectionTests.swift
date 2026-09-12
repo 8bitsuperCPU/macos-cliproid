@@ -192,6 +192,48 @@ struct LibrarySelectionTests {
         await store.close()
     }
 
+    /// Writing the hex to the pasteboard cannot produce a tile: ClipDroid suppresses its own
+    /// writes, so a sampled colour has to be inserted directly.
+    @Test("Sampling a colour files it as a colour clip carrying its hex")
+    func sampledColourBecomesAClip() async throws {
+        let scratch = Scratch()
+        let store = ClipStore.makeDefault(root: scratch.url)
+        try await store.open(backupDirectory: nil)
+        let model = LibraryViewModel(store: store)
+        model.start()
+        try await Task.sleep(for: .milliseconds(200))
+
+        model.saveSampledColour("#FF8800", sampledFrom: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        let clip = try #require(model.clips.first)
+        #expect(clip.contentType == .color)
+        #expect(clip.colorHex == "#FF8800", "the hex is metadata, not just body text")
+        #expect(clip.preview == "#FF8800")
+        await store.close()
+    }
+
+    /// A colour clip must be reachable the same way any other colour is — through the Colours
+    /// facet — or it is filed somewhere the user will not look.
+    @Test("A sampled colour appears under the colour type filter")
+    func sampledColourIsFilterable() async throws {
+        let scratch = Scratch()
+        let store = ClipStore.makeDefault(root: scratch.url)
+        try await store.open(backupDirectory: nil)
+        let model = LibraryViewModel(store: store)
+        model.start()
+        try await Task.sleep(for: .milliseconds(200))
+
+        model.saveSampledColour("#123456", sampledFrom: nil)
+        try await Task.sleep(for: .milliseconds(300))
+        model.activeTypes = [.color]
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(model.clips.count == 1)
+        #expect(model.clips.first?.colorHex == "#123456")
+        await store.close()
+    }
+
     @Test("Clearing the selection also drops the cursor")
     func clearResets() async throws {
         let scratch = Scratch()

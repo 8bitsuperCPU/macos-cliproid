@@ -40,6 +40,7 @@ public struct LibraryView: View {
                     focusedCardFrame: focusedCardFrame,
                     menuContent: { AnyView(ClipContextMenu(clip: $0, model: model)) })
                 .onPreferenceChange(FocusedCardFrameKey.self) { focusedCardFrame = $0 }
+                .escapeClosesPreview(model: model)
                 .alert(deleteAlertTitle, isPresented: deleteAlertBinding) {
                     Button("Cancel", role: .cancel) { model.cancelPendingDelete() }
                     Button("Delete", role: .destructive) { model.confirmPendingDelete() }
