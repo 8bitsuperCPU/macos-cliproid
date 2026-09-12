@@ -75,6 +75,12 @@ public final class PasteCoordinator {
         return outcome
     }
 
+    /// Puts a clip on the pasteboard without delivering it anywhere — the "copy" action, as
+    /// distinct from "paste".
+    public func writeOnly(_ payload: PasteboardPayload, originClipUUID: UUID?) async {
+        await pasteboard.write(payload, originClipUUID: originClipUUID)
+    }
+
     /// Reconstructs the payload from the store. `ClipSummary` carries only a preview, never the
     /// full content — which is what keeps a 10,000-row timeline cheap.
     private func payload(for summary: ClipSummary) async -> PasteboardPayload? {

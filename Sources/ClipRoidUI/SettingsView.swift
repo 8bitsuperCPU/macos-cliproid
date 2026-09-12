@@ -93,7 +93,7 @@ public struct SettingsView: View {
                     value: $settings.shelfItemCount, in: 5...20)
                 .onChange(of: settings.shelfItemCount) { _, _ in onShelfChange() }
 
-            Toggle("Hide until I move the pointer to the edge", isOn: $settings.shelfAutoHide)
+            Toggle("Collapse to a small bar until I point at it", isOn: $settings.shelfAutoHide)
                 .onChange(of: settings.shelfAutoHide) { _, _ in onShelfChange() }
 
             Section("Size") {
@@ -110,9 +110,7 @@ public struct SettingsView: View {
                     }
                     .onChange(of: settings.shelfThickness) { _, _ in onShelfChange() }
 
-                    Text(settings.shelfShowsPreviews
-                         ? "\(Int(settings.shelfThickness))pt — large enough to preview each clip."
-                         : "\(Int(settings.shelfThickness))pt — compact. Hover an item to preview it.")
+                    Text("\(Int(settings.shelfThickness))pt tall — taller cards show more of each clip.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -144,7 +142,7 @@ public struct SettingsView: View {
             }
 
             Section {
-                Text("The shelf sits just below the menu bar. It stays out of the way and never takes keyboard focus — click an item to paste it, or drag it into any app.")
+                Text("The shelf sits just below the menu bar. It never takes keyboard focus — click a card to paste it, or drag it into any app. Card colours stay the same whatever background you choose.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

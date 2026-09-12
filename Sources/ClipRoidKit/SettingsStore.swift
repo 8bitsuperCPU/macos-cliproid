@@ -34,7 +34,7 @@ public final class SettingsStore {
         self.shortcutPrefix = defaults.string(forKey: Key.shortcutPrefix) ?? ";"
         self.shortcutTriggerRaw = defaults.string(forKey: Key.shortcutTrigger) ?? "space"
         self.storedShelfThickness = Self.clampThickness(
-            defaults.object(forKey: Key.shelfThickness) as? Double ?? 54)
+            defaults.object(forKey: Key.shelfThickness) as? Double ?? 240)
         self.shelfAutoHide = defaults.bool(forKey: Key.shelfAutoHide)
         self.shelfBackgroundRaw = defaults.string(forKey: Key.shelfBackground) ?? "material"
         self.shelfTintHex = defaults.string(forKey: Key.shelfTintHex) ?? "#1C1C1E"
@@ -168,9 +168,10 @@ public final class SettingsStore {
         }
     }
 
-    /// 44pt is about the smallest a clickable tile can be and still be hit reliably; past ~170pt
-    /// the shelf stops being a glanceable strip and starts being a window.
-    public nonisolated static func clampThickness(_ value: Double) -> Double { min(max(value, 44), 170) }
+    /// The expanded panel's height. It carries a search row, a chip row, a section header and a
+    /// row of cards, so the useful range starts where a card is still legible and stops before
+    /// the shelf becomes a window in its own right.
+    public nonisolated static func clampThickness(_ value: Double) -> Double { min(max(value, 180), 380) }
 
     /// Above this, tiles are tall enough to show a useful preview of the clip rather than just an
     /// icon. Below it a preview would be a few illegible pixels.

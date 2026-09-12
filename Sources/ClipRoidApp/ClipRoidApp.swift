@@ -81,6 +81,7 @@ struct ClipRoidApp: App {
         let model = ShelfViewModel(
             store: environment.store, coordinator: environment.paste,
             settings: environment.settings)
+        model.openLibrary = { NSApplication.shared.activate(ignoringOtherApps: true) }
         let panel = ShelfPanel(model: model, settings: environment.settings)
         shelf = panel
         panel.show()

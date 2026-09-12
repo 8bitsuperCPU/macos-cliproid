@@ -27,7 +27,19 @@ public final class ShelfPanel: NSObject {
     private let settings: SettingsStore
 
     private var pointerTimer: Timer?
-    private var autoHideRevealed = false
+    /// Expanded means the full panel is showing; collapsed means the nub.
+    private var isExpanded = false
+
+    /// Consecutive polls the pointer has been at the edge, or away from the shelf.
+    ///
+    /// Without a dwell requirement the shelf springs open whenever the pointer merely crosses the
+    /// top of the screen — reaching for the menu bar, or throwing the cursor to a corner — which
+    /// makes it feel like it is in the way rather than waiting to be asked. Collapsing needs its
+    /// own, longer count so a moment's overshoot while reaching for a card does not dismiss it.
+    private var edgeDwell = 0
+    private var awayDwell = 0
+    private static let ticksToExpand = 2    // ~300ms at a 150ms poll
+    private static let ticksToCollapse = 4  // ~600ms
 
     /// How close to the screen edge the pointer must come to reveal an auto-hidden shelf.
     /// Generous enough to hit without aiming, small enough not to trigger in passing.
@@ -62,8 +74,8 @@ public final class ShelfPanel: NSObject {
         model.applySettings()
         // The hosting view is rebuilt so appearance changes — thickness, background, previews —
         // take effect immediately rather than on next launch.
-        panel?.contentView = NSHostingView(rootView: ShelfView(model: model, settings: settings))
-        autoHideRevealed = false
+        isExpanded = !settings.shelfAutoHide
+        render()
         if model.position == .hidden {
             stopAutoHideMonitor()
             hide()
@@ -111,36 +123,56 @@ public final class ShelfPanel: NSObject {
     private func stopAutoHideMonitor() {
         pointerTimer?.invalidate()
         pointerTimer = nil
-        autoHideRevealed = false
+    }
+
+    /// Rebuilds the hosted view for the current collapsed/expanded state.
+    private func render() {
+        panel?.contentView = NSHostingView(
+            rootView: ShelfView(model: model, settings: settings, isCollapsed: !isExpanded))
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        guard expanded != isExpanded else { return }
+        isExpanded = expanded
+        render()
+        reposition()
+        Diagnostics.log(expanded ? "Shelf expanded" : "Shelf collapsed")
     }
 
     private func pointerMoved() {
         guard settings.shelfAutoHide, let panel else { return }
         let mouse = NSEvent.mouseLocation
 
-        if autoHideRevealed {
-            // Hide once the pointer leaves the shelf, with a margin so a few pixels of overshoot
-            // while reaching for an item does not dismiss it.
-            //
-            // The reveal edge counts as "still there", and must. The trigger strip sits at the
-            // outer screen edge — in the menu bar, for a top shelf — while the shelf itself hangs
-            // just below it. Without this the pointer that triggered the reveal is instantly
-            // outside the shelf's frame, so it hides, so the edge triggers it again: a reveal/hide
-            // flicker several times a second for as long as the pointer rests there.
+        if isExpanded {
             let generous = panel.frame.insetBy(dx: -24, dy: -24)
-            if !generous.contains(mouse) && !isPointerAtRevealEdge(mouse) {
-                autoHideRevealed = false
-                panel.orderOut(nil)
-                Diagnostics.log("Shelf auto-hidden (pointer left)")
+            if generous.contains(mouse) || isPointerAtRevealEdge(mouse) {
+                awayDwell = 0
+                return
             }
+            awayDwell += 1
+            guard awayDwell >= Self.ticksToCollapse else { return }
+            awayDwell = 0
+            edgeDwell = 0
+            setExpanded(false)
             return
         }
 
-        guard isPointerAtRevealEdge(mouse) else { return }
-        autoHideRevealed = true
-        reposition()
-        panel.orderFrontRegardless()
-        Diagnostics.log("Shelf revealed at edge")
+        // Collapsed: expand when the pointer rests on the nub, or on the edge it sits on.
+        //
+        // The edge counts as well as the nub itself, and must: the nub is 6pt tall at the outer
+        // screen edge, and the expanded panel hangs below it. Were only the panel's own frame
+        // accepted, the pointer that triggered the expansion would be instantly outside it — so
+        // it would collapse, so the edge would expand it again, several times a second.
+        let nubZone = panel.frame.insetBy(dx: -10, dy: -10)
+        guard nubZone.contains(mouse) || isPointerAtRevealEdge(mouse) else {
+            edgeDwell = 0
+            return
+        }
+        edgeDwell += 1
+        guard edgeDwell >= Self.ticksToExpand else { return }
+        edgeDwell = 0
+        awayDwell = 0
+        setExpanded(true)
     }
 
     /// True when the pointer is against the screen edge the shelf lives on, and within the span
@@ -171,12 +203,10 @@ public final class ShelfPanel: NSObject {
         guard model.position != .hidden else { hide(); return }
         let panel = existingOrNewPanel()
         model.start()
+        // Auto-collapse starts collapsed; the nub stays on screen as the affordance.
+        isExpanded = !settings.shelfAutoHide
         updateAutoHideMonitor()
-        // An auto-hiding shelf starts hidden; it appears when the pointer reaches the edge.
-        if settings.shelfAutoHide && !autoHideRevealed {
-            panel.orderOut(nil)
-            return
-        }
+        render()
         reposition()
         // orderFrontRegardless, not makeKeyAndOrderFront: the shelf must never take focus. It is
         // glanceable and clickable, and stealing key status from the user's editor to show a strip
@@ -205,7 +235,8 @@ public final class ShelfPanel: NSObject {
         panel.collectionBehavior = [
             .canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle,
         ]
-        panel.contentView = NSHostingView(rootView: ShelfView(model: model, settings: settings))
+        panel.contentView = NSHostingView(
+            rootView: ShelfView(model: model, settings: settings, isCollapsed: !isExpanded))
         self.panel = panel
         return panel
     }
@@ -216,21 +247,24 @@ public final class ShelfPanel: NSObject {
     /// highest point a well-behaved window may occupy. On a secondary display with no menu bar,
     /// `visibleFrame.maxY` equals `frame.maxY` and the shelf simply sits at the very top, which is
     /// correct for that screen.
+    private var currentThickness: CGFloat {
+        isExpanded ? thickness : ShelfMetrics.collapsedThickness
+    }
+
     /// How long the shelf is along its running axis, sized to its contents.
     ///
     /// Previously a flat 600pt, which meant reducing the clip count left a mostly empty strip the
-    /// same size as before — the shelf never shrank. It is now derived from the number of items
-    /// actually being shown, then capped so a shelf of twenty large tiles cannot span the display.
+    /// same size as before — the shelf never shrank. It is now derived from the cards actually
+    /// shown, then capped so a shelf of twenty large cards cannot span the display.
     private func shelfSpan(in visible: NSRect) -> CGFloat {
-        let count = max(model.clips.count, 1)
-        let content = CGFloat(count) * (ShelfMetrics.itemLength(forThickness: thickness)
-                                        + ShelfMetrics.itemSpacing)
-            + ShelfMetrics.padding * 2
+        guard isExpanded else { return ShelfMetrics.collapsedLength }
+        let content = ShelfMetrics.expandedLength(
+            cardCount: model.clips.count, thickness: thickness)
         let isHorizontal = model.position == .top || model.position == .bottom
             || model.position == .hidden
         let available = (isHorizontal ? visible.width : visible.height) * maxLengthFraction
-        // A floor, so an empty shelf is still a visible target rather than a sliver.
-        return min(max(content, 160), available)
+        // A floor, so an empty shelf is still a usable panel rather than a sliver.
+        return min(max(content, 320), available)
     }
 
     private func reposition() {
@@ -242,24 +276,26 @@ public final class ShelfPanel: NSObject {
         guard let visible = screen?.visibleFrame else { return }
 
         let span = shelfSpan(in: visible)
+        let breadth = currentThickness
         let size: NSSize
         let origin: NSPoint
 
         switch model.position {
         case .top, .hidden:
-            size = NSSize(width: span, height: thickness)
-            origin = NSPoint(x: visible.midX - span / 2, y: visible.maxY - thickness)
+            size = NSSize(width: span, height: breadth)
+            origin = NSPoint(x: visible.midX - span / 2, y: visible.maxY - breadth)
         case .bottom:
-            size = NSSize(width: span, height: thickness)
+            size = NSSize(width: span, height: breadth)
             origin = NSPoint(x: visible.midX - span / 2, y: visible.minY)
         case .left:
-            size = NSSize(width: thickness, height: span)
+            size = NSSize(width: breadth, height: span)
             origin = NSPoint(x: visible.minX, y: visible.midY - span / 2)
         case .right:
-            size = NSSize(width: thickness, height: span)
-            origin = NSPoint(x: visible.maxX - thickness, y: visible.midY - span / 2)
+            size = NSSize(width: breadth, height: span)
+            origin = NSPoint(x: visible.maxX - breadth, y: visible.midY - span / 2)
         }
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        panel.orderFrontRegardless()
 
         // Proof, not assumption: the shelf must sit entirely inside visibleFrame, which by
         // definition excludes the menu bar and the Dock. If its top edge ever exceeds

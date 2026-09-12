@@ -8,46 +8,52 @@ import ClipRoidKit
 @MainActor
 struct ShelfMetricsTests {
 
-    /// The reported bug: reducing the clip count left the shelf the same size, because its width
-    /// was a flat 600pt rather than derived from its contents.
-    @Test("Tile length grows with thickness")
-    func lengthTracksThickness() {
-        let small = ShelfMetrics.itemLength(forThickness: 54)
-        let large = ShelfMetrics.itemLength(forThickness: 140)
-        #expect(large > small)
+    @Test("Cards grow with shelf thickness")
+    func cardsTrackThickness() {
+        let small = ShelfMetrics.cardSize(forThickness: 200)
+        let large = ShelfMetrics.cardSize(forThickness: 300)
+        #expect(large.height > small.height)
+        #expect(large.width > small.width)
     }
 
-    /// A tall square showing three words is worse than a wider tile showing a line, so tiles
-    /// widen once they are big enough to carry a preview.
-    @Test("Tiles widen once they are large enough to preview")
-    func tilesWidenForPreviews() {
-        let compact = ShelfMetrics.itemLength(forThickness: 60)
-        #expect(compact == ShelfMetrics.itemBreadth(forThickness: 60), "square while compact")
+    /// Cards are wider than tall, because a tall square showing three words reads worse than a
+    /// wider card showing a line.
+    @Test("Cards are landscape")
+    func cardsAreLandscape() {
+        let card = ShelfMetrics.cardSize(forThickness: 260)
+        #expect(card.width > card.height)
+    }
 
-        let big = ShelfMetrics.itemLength(forThickness: 140)
-        #expect(big > ShelfMetrics.itemBreadth(forThickness: 140), "wider than tall once previewing")
+    /// Chrome — search row, chips, section header — has to fit before any card does, or a small
+    /// shelf renders cards with negative height.
+    @Test("Cards never collapse below a usable size, however thin the shelf")
+    func cardsHaveAFloor() {
+        for thickness in [44.0, 80.0, 108.0, 120.0] {
+            let card = ShelfMetrics.cardSize(forThickness: thickness)
+            #expect(card.height >= 64, "thickness \(thickness) produced \(card.height)")
+        }
+    }
+
+    /// The reported bug: reducing the clip count left the shelf the same size, because its length
+    /// was a flat 600pt rather than derived from its contents.
+    @Test("Expanded length tracks the number of cards")
+    func lengthTracksCardCount() {
+        let few = ShelfMetrics.expandedLength(cardCount: 3, thickness: 260)
+        let many = ShelfMetrics.expandedLength(cardCount: 12, thickness: 260)
+        #expect(many > few * 2)
+    }
+
+    @Test("The collapsed nub is small but aimable")
+    func collapsedNubIsSmall() {
+        #expect(ShelfMetrics.collapsedThickness <= 8)
+        #expect(ShelfMetrics.collapsedLength >= 100)
     }
 
     @Test("Thickness is clamped to a usable range", arguments: [
-        (10.0, 44.0), (44.0, 44.0), (100.0, 100.0), (170.0, 170.0), (9_999.0, 170.0),
+        (10.0, 180.0), (180.0, 180.0), (240.0, 240.0), (380.0, 380.0), (9_999.0, 380.0),
     ])
     func clampsThickness(input: Double, expected: Double) {
         #expect(SettingsStore.clampThickness(input) == expected)
-    }
-
-    @Test("Previews switch on only above the threshold")
-    func previewThreshold() {
-        let defaults = UserDefaults(suiteName: "ShelfMetrics-\(UUID().uuidString)")!
-        let settings = SettingsStore(defaults: defaults)
-
-        settings.shelfThickness = 54
-        #expect(!settings.shelfShowsPreviews)
-
-        settings.shelfThickness = SettingsStore.previewThreshold
-        #expect(settings.shelfShowsPreviews)
-
-        settings.shelfThickness = 140
-        #expect(settings.shelfShowsPreviews)
     }
 
     @Test("Shelf appearance settings persist")
@@ -55,14 +61,14 @@ struct ShelfMetricsTests {
         let defaults = UserDefaults(suiteName: "ShelfAppearance-\(UUID().uuidString)")!
         do {
             let settings = SettingsStore(defaults: defaults)
-            settings.shelfThickness = 120
+            settings.shelfThickness = 300
             settings.shelfAutoHide = true
             settings.shelfBackground = .custom
             settings.shelfTintHex = "#2B4C7E"
             settings.shelfOpacity = 0.65
         }
         let reloaded = SettingsStore(defaults: defaults)
-        #expect(reloaded.shelfThickness == 120)
+        #expect(reloaded.shelfThickness == 300)
         #expect(reloaded.shelfAutoHide)
         #expect(reloaded.shelfBackground == .custom)
         #expect(reloaded.shelfTintHex == "#2B4C7E")
