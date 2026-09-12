@@ -103,10 +103,17 @@ struct ClipRoidApp: App {
         }
 
         Settings {
-            SettingsView(settings: environment.settings) {
-                shelf?.applySettings()
-                Task { await environment.applyRetentionSettings() }
-            }
+            SettingsView(
+                settings: environment.settings,
+                rulesModel: RulesViewModel(
+                    store: environment.store, service: environment.smartFilters),
+                onShelfChange: {
+                    shelf?.applySettings()
+                    Task { await environment.applyRetentionSettings() }
+                },
+                onShortcutChange: {
+                    Task { await environment.applyShortcutSettings() }
+                })
         }
 
         MenuBarExtra("ClipRoid", systemImage: "doc.on.clipboard") {

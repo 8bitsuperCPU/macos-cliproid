@@ -7,16 +7,27 @@ import ClipRoidPlatform
 public struct SettingsView: View {
     @Bindable var settings: SettingsStore
     var onShelfChange: @MainActor () -> Void
+    var onShortcutChange: @MainActor () -> Void
+    @State private var rulesModel: RulesViewModel
 
-    public init(settings: SettingsStore, onShelfChange: @escaping @MainActor () -> Void) {
+    public init(
+        settings: SettingsStore,
+        rulesModel: RulesViewModel,
+        onShelfChange: @escaping @MainActor () -> Void,
+        onShortcutChange: @escaping @MainActor () -> Void
+    ) {
         self.settings = settings
+        _rulesModel = State(initialValue: rulesModel)
         self.onShelfChange = onShelfChange
+        self.onShortcutChange = onShortcutChange
     }
 
     public var body: some View {
         TabView {
             general.tabItem { Label("General", systemImage: "gearshape") }
             shelf.tabItem { Label("Shelf", systemImage: "rectangle.topthird.inset.filled") }
+            RulesView(model: rulesModel).tabItem { Label("Rules", systemImage: "line.3.horizontal.decrease.circle") }
+            shortcuts.tabItem { Label("Shortcuts", systemImage: "text.cursor") }
             privacy.tabItem { Label("Privacy", systemImage: "hand.raised") }
         }
         .frame(width: 460)
@@ -86,6 +97,62 @@ public struct SettingsView: View {
                 Text("The shelf sits just below the menu bar. It stays out of the way and never takes keyboard focus — click an item to paste it, or drag it into any app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// Inline shortcuts, and the keystroke observation they require.
+    ///
+    /// This pane is written to be read before the toggle is flipped, not after. A clipboard
+    /// manager asking to watch your keystrokes has to say exactly what it does with them, in
+    /// plain words, or the honest answer from a careful user is no — and it should be.
+    private var shortcuts: some View {
+        Form {
+            Toggle("Expand shortcuts as I type", isOn: $settings.inlineShortcutsEnabled)
+                .onChange(of: settings.inlineShortcutsEnabled) { _, _ in onShortcutChange() }
+
+            Section("What this means") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label {
+                        Text("ClipRoid watches for typed characters so it can recognise a shortcut like \(settings.shortcutPrefix)welcome.")
+                    } icon: { Image(systemName: "keyboard") }
+
+                    Label {
+                        Text("Nothing is kept. Characters are only held while a shortcut is part-typed, never written to disk, and discarded the moment you type anything else or switch apps.")
+                    } icon: { Image(systemName: "trash") }
+
+                    Label {
+                        Text("Turning this off removes the keyboard observer entirely — it is not left running and ignored.")
+                    } icon: { Image(systemName: "xmark.circle") }
+
+                    Label {
+                        Text("This needs Accessibility permission, and works only while ClipRoid is running.")
+                    } icon: { Image(systemName: "lock") }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if settings.inlineShortcutsEnabled {
+                Section {
+                    Picker("Expand", selection: $settings.shortcutTrigger) {
+                        ForEach(ShortcutTrigger.allCases, id: \.self) { trigger in
+                            Text(trigger.displayName).tag(trigger)
+                        }
+                    }
+                    .onChange(of: settings.shortcutTrigger) { _, _ in onShortcutChange() }
+
+                    TextField("Prefix character", text: $settings.shortcutPrefix)
+                        .frame(width: 60)
+                        .onChange(of: settings.shortcutPrefix) { _, new in
+                            // One character, and never a letter or digit — a prefix that can
+                            // appear mid-word would fire constantly during ordinary typing.
+                            let filtered = new.filter { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+                            settings.shortcutPrefix = String(filtered.prefix(1))
+                            onShortcutChange()
+                        }
+                }
             }
         }
         .formStyle(.grouped)

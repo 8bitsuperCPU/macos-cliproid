@@ -97,6 +97,8 @@ public struct LibraryView: View {
 
 struct LibrarySidebar: View {
     @Bindable var model: LibraryViewModel
+    @State private var isAddingCategory = false
+    @State private var newCategoryName = ""
 
     var body: some View {
         List(selection: Binding(
@@ -109,9 +111,55 @@ struct LibrarySidebar: View {
                 row(.favorites, "Favourites", "star")
             }
 
+            Section {
+                ForEach(model.categories) { category in
+                    HStack {
+                        Image(systemName: category.iconName ?? "folder")
+                            .foregroundStyle(category.colorHex.flatMap { Color(hex: $0) } ?? .accentColor)
+                        Text(category.name)
+                        Spacer()
+                        if let count = model.categoryCounts[category.id], count > 0 {
+                            Text("\(count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tag(LibrarySection.category(category.id))
+                    .contextMenu {
+                        Button("Delete category", systemImage: "trash", role: .destructive) {
+                            model.deleteCategory(category)
+                        }
+                        // Worth saying: deleting a label must not look like it deletes content.
+                        Text("Clips stay in your history")
+                    }
+                }
+                Button("New Category…", systemImage: "plus") { isAddingCategory = true }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            } header: {
+                Text("Categories")
+            }
+
             Section("Types") {
                 ForEach(ClipContentType.allCases.filter { model.typeCounts[$0] ?? 0 > 0 }, id: \.self) { type in
                     row(.type(type), type.displayName, type.symbolName, count: model.typeCounts[type])
+                }
+            }
+
+            if !model.tagCounts.isEmpty {
+                Section("Tags") {
+                    ForEach(model.tagCounts, id: \.name) { tag in
+                        HStack {
+                            Image(systemName: "tag")
+                            Text(tag.name)
+                            Spacer()
+                            Text("\(tag.count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        }
+                        .tag(LibrarySection.tag(tag.name))
+                    }
                 }
             }
 
@@ -130,6 +178,15 @@ struct LibrarySidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .alert("New Category", isPresented: $isAddingCategory) {
+            TextField("Name", text: $newCategoryName)
+            Button("Cancel", role: .cancel) { newCategoryName = "" }
+            Button("Create") {
+                let name = newCategoryName.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { model.createCategory(named: name) }
+                newCategoryName = ""
+            }
+        }
     }
 
     private func row(_ section: LibrarySection, _ title: String, _ symbol: String,

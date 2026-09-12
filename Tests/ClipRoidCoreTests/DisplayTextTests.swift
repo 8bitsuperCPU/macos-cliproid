@@ -47,3 +47,47 @@ struct DisplayTextTests {
         }
     }
 }
+
+@Suite("Auto tags")
+struct AutoTagsTests {
+    private func linkClip(_ url: String) -> CapturedClip {
+        CapturedClip(contentType: .link, contentHash: "h", linkUrl: url,
+                     linkHost: URL(string: url)?.host())
+    }
+
+    @Test("A link is tagged with its domain")
+    func tagsDomain() {
+        #expect(AutoTags.tags(for: linkClip("https://github.com/anthropics/claude-code")) == ["github.com"])
+    }
+
+    /// A tag of `github.com` is useful; one of `gist.github.com` splits the same site across
+    /// several tags and makes the cloud noisier for no gain.
+    @Test("Subdomains collapse to the registrable domain", arguments: [
+        ("https://gist.github.com/x", "github.com"),
+        ("https://docs.google.com/d/1", "google.com"),
+        ("https://www.bbc.co.uk/news", "bbc.co.uk"),
+        ("https://shop.example.com.au/x", "example.com.au"),
+    ])
+    func collapsesSubdomains(url: String, expected: String) {
+        #expect(AutoTags.tags(for: linkClip(url)) == [expected])
+    }
+
+    @Test("File clips are tagged with their extension")
+    func tagsFileExtension() {
+        let clip = CapturedClip(
+            contentType: .file, contentHash: "h",
+            fileURLs: [URL(fileURLWithPath: "/tmp/report.PDF"),
+                       URL(fileURLWithPath: "/tmp/image.png")])
+        #expect(AutoTags.tags(for: clip) == ["pdf", "png"])
+    }
+
+    /// Content type and source app are already sidebar facets with their own counts and filters.
+    /// Duplicating them as tags would give two ways to express one filter and a cloud dominated
+    /// by "text" and "Safari".
+    @Test("Plain text produces no tags at all")
+    func noRedundantTags() {
+        let clip = CapturedClip(contentType: .text, contentHash: "h", body: "hello",
+                                sourceAppBundleId: "com.apple.Safari", sourceAppName: "Safari")
+        #expect(AutoTags.tags(for: clip).isEmpty)
+    }
+}

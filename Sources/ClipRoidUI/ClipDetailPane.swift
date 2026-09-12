@@ -13,6 +13,11 @@ struct ClipDetailPane: View {
     @State private var isEditing = false
     @State private var isRevealed = false
     @State private var thumbnailURL: URL?
+    @State private var shortcutDraft: String = ""
+    @State private var shortcutError: String?
+    @State private var assignedCategories: Set<Int64> = []
+    @State private var tags: [String] = []
+    @State private var newTag = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -21,6 +26,9 @@ struct ClipDetailPane: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     contentSection
+                    shortcutSection
+                    categorySection
+                    tagSection
                     metadataSection
                 }
                 .padding(14)
@@ -91,6 +99,106 @@ struct ClipDetailPane: View {
         }
     }
 
+    /// Inline shortcut assignment (spec §4.5).
+    @ViewBuilder
+    private var shortcutSection: some View {
+        if clip.contentType.isEditableText {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Inline shortcut").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField(
+                        "\(environment.settings.shortcutPrefix)shortcut",
+                        text: $shortcutDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .onSubmit { Task { await saveShortcut() } }
+                    Button("Set") { Task { await saveShortcut() } }
+                        .disabled(shortcutDraft == (clip.shortcut ?? ""))
+                }
+                if let shortcutError {
+                    Text(shortcutError).font(.caption).foregroundStyle(.red)
+                } else if !environment.settings.inlineShortcutsEnabled, clip.shortcut != nil {
+                    // A shortcut that silently does nothing is worse than no shortcut at all.
+                    Text("Shortcuts are saved but will not expand until you turn them on in Settings.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var categorySection: some View {
+        if !model.categories.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Categories").font(.caption).foregroundStyle(.secondary)
+                FlowRow {
+                    ForEach(model.categories) { category in
+                        let isOn = assignedCategories.contains(category.id)
+                        Button {
+                            Task {
+                                await model.toggleCategory(category, on: clip)
+                                assignedCategories = await model.categoryIds(for: clip)
+                            }
+                        } label: {
+                            Text(category.name)
+                                .font(.caption)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
+                                            in: Capsule())
+                                .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var tagSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Tags").font(.caption).foregroundStyle(.secondary)
+            FlowRow {
+                ForEach(tags, id: \.self) { tag in
+                    HStack(spacing: 3) {
+                        Text(tag)
+                        Image(systemName: "xmark.circle.fill").font(.caption2)
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                    .onTapGesture {
+                        Task {
+                            await model.removeTag(tag, from: clip)
+                            tags = await model.tags(for: clip)
+                        }
+                    }
+                }
+            }
+            TextField("Add a tag", text: $newTag)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+                .onSubmit {
+                    let name = newTag.trimmingCharacters(in: .whitespaces)
+                    guard !name.isEmpty else { return }
+                    Task {
+                        await model.addTag(name, to: clip)
+                        tags = await model.tags(for: clip)
+                        newTag = ""
+                    }
+                }
+        }
+    }
+
+    private func saveShortcut() async {
+        let trimmed = shortcutDraft.trimmingCharacters(in: .whitespaces)
+        shortcutError = await model.setShortcut(
+            trimmed.isEmpty ? nil : trimmed, on: clip,
+            prefix: environment.settings.shortcutPrefixCharacter)
+        if shortcutError == nil {
+            await environment.shortcuts.refreshShortcuts()
+        }
+    }
+
     private var metadataSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             metadata("Source", clip.sourceAppName ?? "Unknown")
@@ -147,6 +255,11 @@ struct ClipDetailPane: View {
         thumbnailURL = await model.thumbnailURL(for: clip)
         fullText = await model.fullText(for: clip)
         draft = fullText
+        shortcutDraft = clip.shortcut ?? ""
+        shortcutError = nil
+        assignedCategories = await model.categoryIds(for: clip)
+        tags = await model.tags(for: clip)
+        newTag = ""
     }
 }
 
@@ -155,6 +268,43 @@ extension ClipContentType {
         switch self {
         case .text, .code, .link, .note, .richText: true
         default: false
+        }
+    }
+}
+
+
+/// Wraps chips onto as many lines as they need.
+struct FlowRow: Layout {
+    var spacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

@@ -19,6 +19,8 @@ public final class AppEnvironment {
     public let retention: RetentionSweeper
     public let hotKeys: HotKeyCenter
     public let settings: SettingsStore
+    public let smartFilters: SmartFilterService
+    public let shortcuts: ShortcutExpander
     public let paste: PasteCoordinator
 
     /// Set by the UI layer, which owns the panel. Kit deliberately does not import SwiftUI, so the
@@ -50,11 +52,15 @@ public final class AppEnvironment {
         self.store = store
         self.pasteboard = pasteboard
         self.poller = poller
-        self.capture = CaptureCoordinator(poller: poller, store: store)
+        let filters = SmartFilterService(store: store)
+        self.smartFilters = filters
+        self.capture = CaptureCoordinator(poller: poller, store: store, smartFilters: filters)
         self.enrichment = EnrichmentPipeline(store: store, recognizer: VisionTextRecognizer())
         self.retention = RetentionSweeper(store: store)
         self.hotKeys = HotKeyCenter()
         self.settings = SettingsStore()
+        self.shortcuts = ShortcutExpander(
+            store: store, observer: KeystrokeObserver(), pasteboard: pasteboard)
         self.paste = PasteCoordinator(
             store: store, pasteboard: pasteboard,
             deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
@@ -121,6 +127,8 @@ public final class AppEnvironment {
         await enrichment.start()
         await retention.updatePolicy(settings.retentionPolicy)
         await retention.start()
+        await capture.updateIgnoredApps(Set(settings.ignoredBundleIds))
+        await applyShortcutSettings()
     }
 
     /// Pushes changed retention preferences to the sweeper without waiting for the next sweep.
@@ -128,7 +136,26 @@ public final class AppEnvironment {
         await retention.updatePolicy(settings.retentionPolicy)
     }
 
+    /// Starts or tears down the keystroke tap to match the preference.
+    ///
+    /// Turning the feature off destroys the tap rather than leaving it running with its output
+    /// ignored — see ShortcutExpander and plan risk R5.
+    public func applyShortcutSettings() async {
+        shortcuts.updateSettings(
+            prefix: settings.shortcutPrefixCharacter, trigger: settings.shortcutTrigger)
+
+        if settings.inlineShortcutsEnabled {
+            let started = await shortcuts.start()
+            if !started {
+                Diagnostics.log("Inline shortcuts could not start — Accessibility not granted")
+            }
+        } else if shortcuts.isRunning {
+            shortcuts.stop()
+        }
+    }
+
     public func stop() async {
+        shortcuts.stop()
         hotKeys.shutdown()
         await retention.stop()
         await enrichment.stop()

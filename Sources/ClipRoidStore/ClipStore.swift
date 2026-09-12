@@ -483,6 +483,7 @@ public actor ClipStore {
 
         // FTS5 leaves its index fragmented after bulk deletes; this compacts it.
         try? await db.execute("INSERT INTO clip_fts(clip_fts) VALUES('optimize');")
+        try? await pruneOrphanTags()
         return doomed
     }
 
@@ -608,6 +609,243 @@ public actor ClipStore {
             }
             await Task.yield()
         }
+    }
+
+
+    // MARK: - Categories
+
+    public func categories() async throws -> [ClipCategory] {
+        try await db.query(
+            "SELECT id, uuid, name, color_hex, icon_name, sort_order, is_smart FROM categories ORDER BY sort_order, name;"
+        ).map { row in
+            ClipCategory(
+                id: row.int64(0),
+                uuid: UUID(uuidString: row.string(1) ?? "") ?? UUID(),
+                name: row.string(2) ?? "",
+                colorHex: row.string(3),
+                iconName: row.string(4),
+                sortOrder: row.int(5),
+                isSmart: row.bool(6))
+        }
+    }
+
+    @discardableResult
+    public func createCategory(name: String, colorHex: String? = nil, iconName: String? = nil) async throws -> ClipCategory {
+        let uuid = UUID()
+        let order = try await db.query("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories;")
+            .first?.int(0) ?? 0
+        let id = try await db.run(
+            "INSERT INTO categories (uuid, name, color_hex, icon_name, sort_order) VALUES (?,?,?,?,?);",
+            [.text(uuid.uuidString), .text(name), .optional(colorHex), .optional(iconName), .int(order)])
+        return ClipCategory(id: id, uuid: uuid, name: name, colorHex: colorHex,
+                        iconName: iconName, sortOrder: order)
+    }
+
+    public func renameCategory(id: Int64, to name: String) async throws {
+        try await db.run("UPDATE categories SET name = ? WHERE id = ?;", [.text(name), .int(id)])
+    }
+
+    /// Deleting a category removes its assignments via ON DELETE CASCADE but never the clips
+    /// themselves — a category is a label, and losing clips because a label was tidied away would
+    /// be indefensible.
+    public func deleteCategory(id: Int64) async throws {
+        try await db.run("DELETE FROM categories WHERE id = ?;", [.int(id)])
+    }
+
+    public func assign(clipIds: [Int64], toCategory categoryId: Int64) async throws {
+        guard !clipIds.isEmpty else { return }
+        for id in clipIds {
+            try await db.run(
+                "INSERT OR IGNORE INTO clip_categories (clip_id, category_id) VALUES (?,?);",
+                [.int(id), .int(categoryId)])
+        }
+    }
+
+    public func unassign(clipIds: [Int64], fromCategory categoryId: Int64) async throws {
+        for id in clipIds {
+            try await db.run(
+                "DELETE FROM clip_categories WHERE clip_id = ? AND category_id = ?;",
+                [.int(id), .int(categoryId)])
+        }
+    }
+
+    public func categoryIds(forClip clipId: Int64) async throws -> Set<Int64> {
+        Set(try await db.query(
+            "SELECT category_id FROM clip_categories WHERE clip_id = ?;", [.int(clipId)]
+        ).map { $0.int64(0) })
+    }
+
+    public func categoryCounts() async throws -> [Int64: Int] {
+        var counts: [Int64: Int] = [:]
+        for row in try await db.query(
+            "SELECT category_id, COUNT(*) FROM clip_categories GROUP BY category_id;") {
+            counts[row.int64(0)] = row.int(1)
+        }
+        return counts
+    }
+
+    public func clips(inCategory categoryId: Int64, limit: Int = 200) async throws -> [ClipSummary] {
+        try await db.query(
+            """
+            SELECT \(Self.aliasedSummaryColumns) FROM clips c
+            JOIN clip_categories cc ON cc.clip_id = c.id
+            WHERE cc.category_id = ? ORDER BY c.is_pinned DESC, c.copied_at DESC LIMIT ?;
+            """, [.int(categoryId), .int(limit)]).map(decodeSummary)
+    }
+
+    // MARK: - Smart filter rules
+
+    public func smartFilterRules() async throws -> [SmartFilterRule] {
+        try await db.query(
+            """
+            SELECT id, uuid, name, category_id, enabled, content_type,
+                   source_app_bundle_id, text_pattern, is_regex, sort_order
+            FROM smart_filter_rules ORDER BY sort_order, id;
+            """
+        ).map { row in
+            SmartFilterRule(
+                id: row.int64(0),
+                uuid: UUID(uuidString: row.string(1) ?? "") ?? UUID(),
+                name: row.string(2) ?? "",
+                categoryId: row.int64(3),
+                enabled: row.bool(4),
+                contentType: row.isNull(5) ? nil : ClipContentType(rawValue: row.int(5)),
+                sourceAppBundleId: row.string(6),
+                textPattern: row.string(7),
+                isRegex: row.bool(8),
+                sortOrder: row.int(9))
+        }
+    }
+
+    @discardableResult
+    public func createRule(_ rule: SmartFilterRule) async throws -> Int64 {
+        try await db.run(
+            """
+            INSERT INTO smart_filter_rules
+              (uuid, name, category_id, enabled, content_type, source_app_bundle_id,
+               text_pattern, is_regex, sort_order)
+            VALUES (?,?,?,?,?,?,?,?,?);
+            """,
+            [.text(rule.uuid.uuidString), .text(rule.name), .int(rule.categoryId),
+             .bool(rule.enabled),
+             rule.contentType.map { SQLValue.int($0.rawValue) } ?? .null,
+             .optional(rule.sourceAppBundleId), .optional(rule.textPattern),
+             .bool(rule.isRegex), .int(rule.sortOrder)])
+    }
+
+    public func updateRule(_ rule: SmartFilterRule) async throws {
+        try await db.run(
+            """
+            UPDATE smart_filter_rules SET name = ?, category_id = ?, enabled = ?, content_type = ?,
+              source_app_bundle_id = ?, text_pattern = ?, is_regex = ? WHERE id = ?;
+            """,
+            [.text(rule.name), .int(rule.categoryId), .bool(rule.enabled),
+             rule.contentType.map { SQLValue.int($0.rawValue) } ?? .null,
+             .optional(rule.sourceAppBundleId), .optional(rule.textPattern),
+             .bool(rule.isRegex), .int(rule.id)])
+    }
+
+    public func deleteRule(id: Int64) async throws {
+        try await db.run("DELETE FROM smart_filter_rules WHERE id = ?;", [.int(id)])
+    }
+
+    /// Everything a rule needs to be evaluated against, for retroactive application.
+    public func ruleCandidates(limit: Int, after id: Int64) async throws -> [(id: Int64, candidate: SmartFilterEngine.Candidate)] {
+        try await db.query(
+            """
+            SELECT id, content_type, source_app_bundle_id, source_app_name, body, ocr_text
+            FROM clips WHERE id > ? ORDER BY id LIMIT ?;
+            """, [.int(id), .int(limit)]
+        ).map { row in
+            (id: row.int64(0),
+             candidate: SmartFilterEngine.Candidate(
+                contentType: ClipContentType(rawValue: row.int(1)) ?? .unknown,
+                sourceAppBundleId: row.string(2),
+                sourceAppName: row.string(3),
+                // OCR text counts: "everything mentioning invoice" should catch a photographed
+                // receipt, not only typed text.
+                text: [row.string(4), row.string(5)].compactMap { $0 }.joined(separator: "\n")))
+        }
+    }
+
+    // MARK: - Tags
+
+    public func addTags(_ names: Set<String>, toClip clipId: Int64) async throws {
+        for name in names {
+            let clean = name.trimmingCharacters(in: .whitespaces).lowercased()
+            guard !clean.isEmpty, clean.count <= 40 else { continue }
+            try await db.run("INSERT OR IGNORE INTO tags (name) VALUES (?);", [.text(clean)])
+            guard let tagId = try await db.query(
+                "SELECT id FROM tags WHERE name = ?;", [.text(clean)]).first?.int64(0) else { continue }
+            try await db.run(
+                "INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?,?);",
+                [.int(clipId), .int(tagId)])
+        }
+    }
+
+    public func removeTag(_ name: String, fromClip clipId: Int64) async throws {
+        try await db.run(
+            """
+            DELETE FROM clip_tags WHERE clip_id = ?
+              AND tag_id = (SELECT id FROM tags WHERE name = ?);
+            """, [.int(clipId), .text(name.lowercased())])
+    }
+
+    public func tags(forClip clipId: Int64) async throws -> [String] {
+        try await db.query(
+            """
+            SELECT t.name FROM tags t JOIN clip_tags ct ON ct.tag_id = t.id
+            WHERE ct.clip_id = ? ORDER BY t.name;
+            """, [.int(clipId)]).compactMap { $0.string(0) }
+    }
+
+    /// Tag frequencies for the cloud (spec §4.6), most used first.
+    public func tagCounts(limit: Int = 40) async throws -> [(name: String, count: Int)] {
+        try await db.query(
+            """
+            SELECT t.name, COUNT(*) FROM tags t JOIN clip_tags ct ON ct.tag_id = t.id
+            GROUP BY t.id ORDER BY COUNT(*) DESC, t.name LIMIT ?;
+            """, [.int(limit)]
+        ).map { (name: $0.string(0) ?? "", count: $0.int(1)) }
+    }
+
+    public func clips(withTag name: String, limit: Int = 200) async throws -> [ClipSummary] {
+        try await db.query(
+            """
+            SELECT \(Self.aliasedSummaryColumns) FROM clips c
+            JOIN clip_tags ct ON ct.clip_id = c.id
+            JOIN tags t ON t.id = ct.tag_id
+            WHERE t.name = ? ORDER BY c.is_pinned DESC, c.copied_at DESC LIMIT ?;
+            """, [.text(name.lowercased()), .int(limit)]).map(decodeSummary)
+    }
+
+    /// Removes tags no clip references any more, so the cloud does not accumulate dead entries
+    /// after a retention sweep.
+    public func pruneOrphanTags() async throws {
+        try await db.run(
+            "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM clip_tags);")
+    }
+
+    // MARK: - Inline shortcuts
+
+    /// shortcut text → clip id, for the matcher.
+    public func shortcuts() async throws -> [String: Int64] {
+        var map: [String: Int64] = [:]
+        for row in try await db.query(
+            "SELECT shortcut, id FROM clips WHERE shortcut IS NOT NULL;") {
+            if let shortcut = row.string(0) { map[shortcut] = row.int64(1) }
+        }
+        return map
+    }
+
+    /// Assigns or clears a clip's shortcut.
+    ///
+    /// A unique partial index enforces one clip per shortcut at the database level, so a race
+    /// between two assignment sheets cannot produce two clips claiming the same expansion.
+    public func setShortcut(_ shortcut: String?, id: Int64) async throws {
+        try await db.run(
+            "UPDATE clips SET shortcut = ? WHERE id = ?;", [.optional(shortcut), .int(id)])
+        if let summary = try await summary(id: id) { publish(.updated(summary)) }
     }
 
     // MARK: - Delete

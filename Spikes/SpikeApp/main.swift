@@ -323,6 +323,26 @@ let spike = Spike()
 
 // S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
 // Without it, arm the hotkey and wait, which is the S2 firing test.
+// M5_TYPE=<bundleId>:<text> — focus an app and type text, for testing inline shortcut expansion.
+if let spec = ProcessInfo.processInfo.environment["M5_TYPE"] {
+    let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+    if parts.count == 2,
+       let app = NSRunningApplication.runningApplications(withBundleIdentifier: parts[0]).first {
+        app.activate(options: [])
+        Thread.sleep(forTimeInterval: 1.5)
+        log("typing \"\(parts[1])\" into \(parts[0])")
+        typeString(parts[1])
+        Thread.sleep(forTimeInterval: 1.5)
+        log("focused now = \(describeFocusedElement())")
+        if let contents = readFocusedText() {
+            log("field contains: \(contents.prefix(120))")
+        }
+    } else {
+        log("bad M5_TYPE spec or app not running")
+    }
+    exit(0)
+}
+
 // AX_DUMP=<bundleId> — walk another app's accessibility tree.
 //
 // Verifies that a window actually rendered and is populated, without needing Screen Recording.

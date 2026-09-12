@@ -28,6 +28,11 @@ public final class SettingsStore {
         self.maxClipCount = defaults.object(forKey: Key.maxClipCount) as? Int ?? 10_000
         self.maxClipAgeDays = defaults.object(forKey: Key.maxClipAgeDays) as? Int ?? 90
         self.ignoredBundleIds = defaults.stringArray(forKey: Key.ignoredApps) ?? []
+        // Off by default, deliberately. Enabling it creates a keystroke tap, and that has to be a
+        // decision the user makes rather than one they discover.
+        self.inlineShortcutsEnabled = defaults.bool(forKey: Key.inlineShortcuts)
+        self.shortcutPrefix = defaults.string(forKey: Key.shortcutPrefix) ?? ";"
+        self.shortcutTriggerRaw = defaults.string(forKey: Key.shortcutTrigger) ?? "space"
     }
 
     private enum Key {
@@ -42,6 +47,9 @@ public final class SettingsStore {
         static let maxClipCount = "retention.maxCount"
         static let maxClipAgeDays = "retention.maxAgeDays"
         static let ignoredApps = "capture.ignoredApps"
+        static let inlineShortcuts = "shortcuts.enabled"
+        static let shortcutPrefix = "shortcuts.prefix"
+        static let shortcutTrigger = "shortcuts.trigger"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -110,6 +118,23 @@ public final class SettingsStore {
     }
     public var ignoredBundleIds: [String] {
         didSet { defaults.set(ignoredBundleIds, forKey: Key.ignoredApps) }
+    }
+
+    public var inlineShortcutsEnabled: Bool {
+        didSet { defaults.set(inlineShortcutsEnabled, forKey: Key.inlineShortcuts) }
+    }
+    public var shortcutPrefix: String {
+        didSet { defaults.set(shortcutPrefix, forKey: Key.shortcutPrefix) }
+    }
+    private var shortcutTriggerRaw: String {
+        didSet { defaults.set(shortcutTriggerRaw, forKey: Key.shortcutTrigger) }
+    }
+    public var shortcutTrigger: ShortcutTrigger {
+        get { ShortcutTrigger(rawValue: shortcutTriggerRaw) ?? .space }
+        set { shortcutTriggerRaw = newValue.rawValue }
+    }
+    public var shortcutPrefixCharacter: Character {
+        shortcutPrefix.first ?? ";"
     }
 
     public var retentionPolicy: RetentionPolicy {
