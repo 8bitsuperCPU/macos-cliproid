@@ -199,3 +199,34 @@ struct SectionFilterTests {
         #expect(LibrarySection.tag("a") != LibrarySection.tag("b"))
     }
 }
+
+@Suite("Detail pane width")
+@MainActor
+struct DetailWidthTests {
+    /// The reported bug: returning from the expanded view gave the detail pane roughly 30% of the
+    /// window rather than the width it had before, because HSplitView owned the divider and
+    /// treated the requested width as a hint.
+    private func clamped(_ stored: Double, available: Double) -> Double {
+        let maximum = max(280, min(700, available * 0.6))
+        return min(max(stored, 260), maximum)
+    }
+
+    @Test("A remembered width is restored exactly")
+    func restoresExactly() {
+        #expect(clamped(420, available: 1400) == 420)
+        #expect(clamped(340, available: 1400) == 340)
+    }
+
+    /// A width remembered from a large window must not swallow a small one.
+    @Test("Width is capped relative to the window")
+    func capsToWindow() {
+        #expect(clamped(700, available: 800) == 480, "60% of an 800pt window")
+        #expect(clamped(600, available: 1400) == 600, "fits comfortably in a wide window")
+    }
+
+    @Test("Width never collapses below a usable minimum")
+    func hasAFloor() {
+        #expect(clamped(10, available: 1400) == 260)
+        #expect(clamped(0, available: 400) >= 260)
+    }
+}

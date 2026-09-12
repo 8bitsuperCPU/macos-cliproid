@@ -13,8 +13,9 @@ public struct LibraryView: View {
     /// the store is full. The view has to own the model for it to survive a re-render.
     @State private var model: LibraryViewModel
     let environment: AppEnvironment
-    /// Remembered across launches, since HSplitView does not persist its divider.
+    /// Remembered across launches.
     @AppStorage("library.detailWidth") private var detailWidth: Double = 340
+    @State private var dragStartWidth: Double?
 
     public init(store: ClipStore, environment: AppEnvironment) {
         _model = State(initialValue: LibraryViewModel(
@@ -33,12 +34,24 @@ public struct LibraryView: View {
             if model.isDetailExpanded, let selected = model.singleSelection {
                 ClipDetailPane(clip: selected, model: model, environment: environment)
             } else {
-                HSplitView {
-                    clipsPane
-                    if let selected = model.singleSelection {
-                        ClipDetailPane(clip: selected, model: model, environment: environment)
-                            .frame(minWidth: 260, idealWidth: detailWidth, maxWidth: 640)
-                            .background(DetailWidthReporter { detailWidth = $0 })
+                // An explicit width with a draggable divider, rather than HSplitView.
+                //
+                // HSplitView owns its divider position and treats idealWidth as a hint applied on
+                // first layout only, so returning from the expanded view rebuilt the split and
+                // gave the detail pane whatever proportion it felt like — about 30% of the window,
+                // regardless of how wide it had been. Holding the width ourselves means restoring
+                // is exact.
+                GeometryReader { proxy in
+                    HStack(spacing: 0) {
+                        clipsPane
+                            .frame(maxWidth: .infinity)
+                        if model.singleSelection != nil {
+                            detailDivider(in: proxy.size.width)
+                        }
+                        if let selected = model.singleSelection {
+                            ClipDetailPane(clip: selected, model: model, environment: environment)
+                                .frame(width: clampedDetailWidth(in: proxy.size.width))
+                        }
                     }
                 }
             }
@@ -47,6 +60,34 @@ public struct LibraryView: View {
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
         .toolbar { toolbarContent }
         .task { model.start() }
+    }
+
+    /// Keeps the pane usable whatever the window size — a remembered 600pt on a narrow window
+    /// would otherwise leave no room for the clips themselves.
+    private func clampedDetailWidth(in available: Double) -> Double {
+        let maximum = max(280, min(700, available * 0.6))
+        return min(max(detailWidth, 260), maximum)
+    }
+
+    /// A draggable divider. Dragging updates the remembered width directly, so what is restored is
+    /// exactly what the user last set.
+    private func detailDivider(in available: Double) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 8)
+            .overlay(Divider())
+            .contentShape(Rectangle())
+            .cursor(.resizeLeftRight)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        let start = dragStartWidth ?? detailWidth
+                        dragStartWidth = start
+                        // Dragging left widens the detail pane, since it sits on the right.
+                        detailWidth = min(max(start - value.translation.width, 260),
+                                          max(280, min(700, available * 0.6)))
+                    }
+                    .onEnded { _ in dragStartWidth = nil })
     }
 
     private var clipsPane: some View {
@@ -300,24 +341,6 @@ extension ClipContentType {
         case .note: "Notes"
         case .multiClip: "Multi-clip"
         case .unknown: "Other"
-        }
-    }
-}
-
-
-/// Reports the detail pane's live width so the divider position can be remembered.
-///
-/// `HSplitView` does not persist its divider, so without this the detail pane snapped back to its
-/// default every launch however it had been left.
-struct DetailWidthReporter: NSViewRepresentable {
-    var onChange: (Double) -> Void
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            let width = nsView.superview?.frame.width ?? 0
-            if width > 100 { onChange(Double(width)) }
         }
     }
 }

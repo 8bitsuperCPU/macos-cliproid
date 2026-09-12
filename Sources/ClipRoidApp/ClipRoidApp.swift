@@ -149,6 +149,7 @@ struct ClipRoidApp: App {
                 },
                 onPasteChange: {
                     environment.applyPasteSettings()
+                    Task { await environment.applyLinkPreviewSettings() }
                 })
         }
 

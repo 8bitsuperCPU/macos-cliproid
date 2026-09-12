@@ -45,6 +45,9 @@ public final class SettingsStore {
             defaults.object(forKey: Key.collapsedLength) as? Double ?? 264)
         self.collapsedRainbow = defaults.bool(forKey: Key.collapsedRainbow)
         self.peekShelfOnLaunch = defaults.object(forKey: Key.peekOnLaunch) as? Bool ?? true
+        // Off by default. It is the only network request the app ever makes, and spec §9 promises
+        // "fully offline" — so it has to be a choice the user makes knowingly.
+        self.fetchLinkPreviews = defaults.bool(forKey: Key.fetchLinkPreviews)
         self.shelfTextStyleRaw = defaults.string(forKey: Key.shelfTextStyle) ?? "automatic"
         self.storedPreviewHeightFraction = Self.clampPreviewFraction(
             defaults.object(forKey: Key.previewHeightFraction) as? Double ?? 0.5)
@@ -82,6 +85,7 @@ public final class SettingsStore {
         static let collapsedRainbow = "shelf.collapsed.rainbow"
         static let shelfTextStyle = "shelf.textStyle"
         static let peekOnLaunch = "shelf.peekOnLaunch"
+        static let fetchLinkPreviews = "capture.fetchLinkPreviews"
         static let previewHeightFraction = "shelf.preview.heightFraction"
         static let previewCloseDelay = "shelf.preview.closeDelay"
         static let libraryLayout = "library.layout"
@@ -334,6 +338,16 @@ public final class SettingsStore {
     /// without the user having to go looking along the screen edge for it.
     public var peekShelfOnLaunch: Bool {
         didSet { defaults.set(peekShelfOnLaunch, forKey: Key.peekOnLaunch) }
+    }
+
+    /// Fetches the title and preview image of a copied link.
+    ///
+    /// The only thing in ClipRoid that touches the network. When on, copying a URL causes a
+    /// request to that URL — which tells the site that someone copied its link, at that moment,
+    /// from this IP. That is a real disclosure and the Settings copy says so plainly rather than
+    /// describing it as "rich previews".
+    public var fetchLinkPreviews: Bool {
+        didSet { defaults.set(fetchLinkPreviews, forKey: Key.fetchLinkPreviews) }
     }
 
     /// An animated gradient on the collapsed bar.

@@ -70,6 +70,36 @@ public struct SettingsView: View {
                 Toggle("Files", isOn: $settings.captureFiles)
             }
 
+            Section("Link previews") {
+                Toggle("Fetch a title and image for copied links",
+                       isOn: $settings.fetchLinkPreviews)
+                    .onChange(of: settings.fetchLinkPreviews) { _, _ in onPasteChange() }
+
+                // Said plainly, because this is the one thing in the app that reaches the network
+                // and the rest of the product promises it never does.
+                VStack(alignment: .leading, spacing: 6) {
+                    Label {
+                        Text("This is the only time ClipRoid contacts the internet. Everything else stays on this Mac.")
+                    } icon: { Image(systemName: "network") }
+
+                    Label {
+                        Text("Copying a link asks that website for its title and preview image — which tells the site that someone copied its link just then, from your IP address.")
+                    } icon: { Image(systemName: "eye") }
+
+                    Label {
+                        Text("Requests carry no cookies, so you are not identified as a logged-in user.")
+                    } icon: { Image(systemName: "lock") }
+
+                    if !settings.fetchLinkPreviews {
+                        Label {
+                            Text("With this off, link clips still show the site's domain — that is worked out locally.")
+                        } icon: { Image(systemName: "checkmark.circle") }
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
             Section("History") {
                 Picker("Keep at most", selection: $settings.maxClipCount) {
                     Text("1,000 clips").tag(1_000)

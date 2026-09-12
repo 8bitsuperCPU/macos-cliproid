@@ -16,14 +16,29 @@ import os.log
 public actor EnrichmentPipeline {
     private let store: ClipStore
     private let recognizer: any TextRecognizing
+    private let linkPreviews: (any LinkPreviewFetching)?
+
+    /// Pushed in from Settings rather than read back out of it.
+    ///
+    /// The first version called a closure that did `MainActor.assumeIsolated { settings.… }`.
+    /// `assumeIsolated` is an assertion, not a hop: called from this actor's executor it is a
+    /// precondition failure, and it killed the app the first time a link was copied. Anything an
+    /// actor needs from the main actor has to be handed to it, never fetched.
+    private var shouldFetchLinkPreviews = false
     private let logger = Logger(subsystem: "dev.philtronic.ClipRoid", category: "Enrichment")
 
     private var task: Task<Void, Never>?
     private var idlePause: Duration = .seconds(2)
 
-    public init(store: ClipStore, recognizer: any TextRecognizing) {
+    public init(store: ClipStore, recognizer: any TextRecognizing,
+                linkPreviews: (any LinkPreviewFetching)? = nil) {
         self.store = store
         self.recognizer = recognizer
+        self.linkPreviews = linkPreviews
+    }
+
+    public func setFetchLinkPreviews(_ enabled: Bool) {
+        shouldFetchLinkPreviews = enabled
     }
 
     public func start() {
@@ -115,11 +130,31 @@ public actor EnrichmentPipeline {
             }
 
         case .link:
-            // Fetching a page title means a network request per copied link, which contradicts the
-            // "fully offline, no phone-home" promise in spec §9 unless the user opts in. Deferred
-            // rather than quietly implemented; the host is already shown on the card.
+            // The host is always available locally and costs nothing.
             title = job.linkUrl.flatMap { URL(string: $0)?.host() }
             state = .done
+
+            // Anything beyond that means asking the site itself, so it happens only when the user
+            // has switched it on (spec §9).
+            if shouldFetchLinkPreviews, let fetcher = linkPreviews,
+               let raw = job.linkUrl, let url = URL(string: raw) {
+                do {
+                    let preview = try await fetcher.preview(for: url)
+                    if let fetched = preview.title, !fetched.isEmpty {
+                        title = fetched
+                    }
+                    if let imageURL = preview.imageURL,
+                       let fetcher = fetcher as? LinkPreviewImageFetching,
+                       let data = try await fetcher.imageData(from: imageURL, maxBytes: 4 * 1024 * 1024),
+                       let thumbnail = Thumbnailer.thumbnailPNG(from: data) {
+                        thumbnailPath = try? await store.writeThumbnail(thumbnail, uuid: job.uuid)
+                    }
+                } catch {
+                    // A site that is slow, gone, or refuses us is not a reason to fail the clip —
+                    // the host-derived title stands.
+                    logger.info("Link preview unavailable for \(url.host() ?? "?", privacy: .public)")
+                }
+            }
 
         default:
             state = .notApplicable

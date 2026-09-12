@@ -57,10 +57,12 @@ public final class AppEnvironment {
         let filters = SmartFilterService(store: store)
         self.smartFilters = filters
         self.capture = CaptureCoordinator(poller: poller, store: store, smartFilters: filters)
-        self.enrichment = EnrichmentPipeline(store: store, recognizer: VisionTextRecognizer())
+        self.settings = SettingsStore()
+        self.enrichment = EnrichmentPipeline(
+            store: store, recognizer: VisionTextRecognizer(),
+            linkPreviews: LinkPreviewFetcher())
         self.retention = RetentionSweeper(store: store)
         self.hotKeys = HotKeyCenter()
-        self.settings = SettingsStore()
         self.externalEditor = ExternalEditor(store: store)
         self.shortcuts = ShortcutExpander(
             store: store, observer: KeystrokeObserver(), pasteboard: pasteboard)
@@ -132,6 +134,7 @@ public final class AppEnvironment {
         await retention.start()
         await capture.updateIgnoredApps(Set(settings.ignoredBundleIds))
         applyPasteSettings()
+        await applyLinkPreviewSettings()
         await applyShortcutSettings()
     }
 
@@ -144,6 +147,11 @@ public final class AppEnvironment {
     /// control that looks live and changes nothing.
     public func applyPasteSettings() {
         deliverer.isAutoPasteEnabled = settings.autoPasteEnabled
+    }
+
+    /// Hands the link-preview preference to the enrichment actor.
+    public func applyLinkPreviewSettings() async {
+        await enrichment.setFetchLinkPreviews(settings.fetchLinkPreviews)
     }
 
     /// Starts or tears down the keystroke tap to match the preference.
