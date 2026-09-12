@@ -107,7 +107,7 @@ public struct SettingsView: View {
             if settings.shelfAutoHide {
                 Section("Collapsed bar") {
                     VStack(alignment: .leading, spacing: 2) {
-                        Slider(value: $settings.collapsedThickness, in: 4...40, step: 1) {
+                        Slider(value: $settings.collapsedThickness, in: 8...40, step: 1) {
                             Text("Thickness")
                         }
                         .onChange(of: settings.collapsedThickness) { _, _ in onShelfChange() }
@@ -124,6 +124,7 @@ public struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
 
+                    Toggle("Show the shelf briefly at launch", isOn: $settings.peekShelfOnLaunch)
                     Toggle("Animated rainbow", isOn: $settings.collapsedRainbow)
                         .onChange(of: settings.collapsedRainbow) { _, _ in onShelfChange() }
                     if settings.collapsedRainbow {

@@ -44,6 +44,7 @@ public final class SettingsStore {
         self.storedCollapsedLength = Self.clampCollapsedLength(
             defaults.object(forKey: Key.collapsedLength) as? Double ?? 264)
         self.collapsedRainbow = defaults.bool(forKey: Key.collapsedRainbow)
+        self.peekShelfOnLaunch = defaults.object(forKey: Key.peekOnLaunch) as? Bool ?? true
         self.shelfTextStyleRaw = defaults.string(forKey: Key.shelfTextStyle) ?? "automatic"
         self.storedPreviewHeightFraction = Self.clampPreviewFraction(
             defaults.object(forKey: Key.previewHeightFraction) as? Double ?? 0.5)
@@ -80,6 +81,7 @@ public final class SettingsStore {
         static let collapsedLength = "shelf.collapsed.length"
         static let collapsedRainbow = "shelf.collapsed.rainbow"
         static let shelfTextStyle = "shelf.textStyle"
+        static let peekOnLaunch = "shelf.peekOnLaunch"
         static let previewHeightFraction = "shelf.preview.heightFraction"
         static let previewCloseDelay = "shelf.preview.closeDelay"
         static let libraryLayout = "library.layout"
@@ -236,10 +238,13 @@ public final class SettingsStore {
         }
     }
 
-    /// Below about 4pt the bar is hard to hit deliberately; above ~40pt it stops being a hint and
-    /// starts occupying the screen it was meant to give back.
+    /// Minimum 8pt.
+    ///
+    /// 4pt was allowed and is a mistake: pressed against the menu bar it reads as a rendering
+    /// artefact rather than a control, and it is below the size anyone can reliably aim at. Above
+    /// ~40pt it stops being a hint and starts occupying the screen it was meant to give back.
     public nonisolated static func clampCollapsedThickness(_ value: Double) -> Double {
-        min(max(value, 4), 40)
+        min(max(value, 8), 40)
     }
 
     public nonisolated static func clampCollapsedLength(_ value: Double) -> Double {
@@ -320,6 +325,15 @@ public final class SettingsStore {
     /// that the grid stops being a way to scan a history.
     public nonisolated static func clampTileSize(_ value: Double) -> Double {
         min(max(value, 90), 320)
+    }
+
+    /// Briefly shows the shelf at launch so its position is obvious.
+    ///
+    /// A collapsed bar is deliberately unobtrusive, which makes it easy to miss entirely — the
+    /// app looks as though the shelf simply is not running. A short peek says where it lives
+    /// without the user having to go looking along the screen edge for it.
+    public var peekShelfOnLaunch: Bool {
+        didSet { defaults.set(peekShelfOnLaunch, forKey: Key.peekOnLaunch) }
     }
 
     /// An animated gradient on the collapsed bar.

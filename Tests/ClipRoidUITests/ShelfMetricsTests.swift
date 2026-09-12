@@ -43,8 +43,10 @@ struct ShelfMetricsTests {
         #expect(many > few * 2)
     }
 
+    /// 4pt was allowed and is a mistake: pressed against the menu bar it reads as a rendering
+    /// artefact rather than a control, and it is below the size anyone can reliably aim at.
     @Test("Collapsed bar dimensions are clamped to a usable range", arguments: [
-        (0.0, 4.0), (4.0, 4.0), (12.0, 12.0), (40.0, 40.0), (500.0, 40.0),
+        (0.0, 8.0), (4.0, 8.0), (8.0, 8.0), (12.0, 12.0), (40.0, 40.0), (500.0, 40.0),
     ])
     func clampsCollapsedThickness(input: Double, expected: Double) {
         #expect(SettingsStore.clampCollapsedThickness(input) == expected)

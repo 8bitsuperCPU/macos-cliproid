@@ -128,6 +128,33 @@ public final class ShelfPanel: NSObject {
         pointerTimer = nil
     }
 
+    private var hasPeeked = false
+    /// True for the duration of the launch peek.
+    private var isPeeking = false
+
+    /// Shows the shelf briefly, then collapses it.
+    ///
+    /// Without this a first launch looks like nothing happened: the collapsed bar is deliberately
+    /// unobtrusive, so a user who does not already know it is there has no reason to sweep the
+    /// screen edge looking for it.
+    private func peek() {
+        isPeeking = true
+        setExpanded(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
+            guard let self else { return }
+            self.isPeeking = false
+            guard self.isExpanded else { return }
+            // Not if the pointer has already found it, or a preview is open — collapsing under
+            // the user would be worse than never peeking at all.
+            let mouse = NSEvent.mouseLocation
+            if self.model.isPreviewOpen { return }
+            if let panel = self.panel, panel.frame.insetBy(dx: -24, dy: -24).contains(mouse) {
+                return
+            }
+            self.setExpanded(false)
+        }
+    }
+
     /// Rebuilds the hosted view for the current collapsed/expanded state.
     private func render() {
         panel?.contentView = NSHostingView(
@@ -147,6 +174,11 @@ public final class ShelfPanel: NSObject {
         let mouse = NSEvent.mouseLocation
 
         if isExpanded {
+            // The launch peek runs to its own length. The ordinary collapse dwell is 600ms, far
+            // shorter than the peek, so without this the shelf snapped shut again before anyone
+            // could notice it had opened — which is the very thing the peek exists to prevent.
+            if isPeeking { return }
+
             // An open preview keeps the shelf up. Collapsing would destroy the card the preview is
             // anchored to and take the preview with it, regardless of its own close delay.
             if model.isPreviewOpen {
@@ -218,6 +250,11 @@ public final class ShelfPanel: NSObject {
         updateAutoHideMonitor()
         render()
         reposition()
+
+        if settings.shelfAutoHide && settings.peekShelfOnLaunch && !hasPeeked {
+            hasPeeked = true
+            peek()
+        }
         // orderFrontRegardless, not makeKeyAndOrderFront: the shelf must never take focus. It is
         // glanceable and clickable, and stealing key status from the user's editor to show a strip
         // of clips would be indefensible.

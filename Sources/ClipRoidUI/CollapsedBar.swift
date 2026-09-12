@@ -12,13 +12,17 @@ struct CollapsedBar: View {
             if settings.collapsedRainbow {
                 rainbow
             } else {
+                // Opaque and clearly lighter than the panel. At 22% white over a translucent
+                // background the bar read as a smudge rather than a control.
                 RoundedRectangle(cornerRadius: radius)
-                    .fill(Color.white.opacity(0.22))
-                    .background(ShelfPalette.panel(settings).opacity(0.85))
+                    .fill(Color.white.opacity(0.55))
+                    .background(ShelfPalette.panel(settings))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: radius))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Separates it from whatever is behind, which at the screen edge is often the menu bar.
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
     }
 
     /// A continuously cycling gradient.
