@@ -147,6 +147,8 @@ struct ShelfViewModelTests {
         await store.close()
     }
 
+    /// `itemCount` is how many cards the shelf is *sized* to show, not how many the strip holds:
+    /// it deliberately keeps more so a trackpad swipe has somewhere to go.
     @Test("The shelf shows at most the configured number of items")
     func respectsItemCount() async throws {
         let scratch = Scratch()
@@ -156,7 +158,38 @@ struct ShelfViewModelTests {
         model.itemCount = 5
         model.start()
         try await Task.sleep(for: .milliseconds(300))
-        #expect(model.clips.count == 5)
+        #expect(model.visibleCardCount == 5, "the shelf is only ever as wide as itemCount cards")
+        await store.close()
+    }
+
+    /// Without spare clips beyond the visible ones the scroll view has no overflow, and swiping
+    /// the shelf does nothing at all — which is exactly how this started.
+    @Test("The strip holds more clips than it shows, so it can be scrolled")
+    func keepsScrollableDepth() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        for i in 1...40 { try await store.insert(clip("clip \(i)")) }
+
+        model.itemCount = 5
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count > model.visibleCardCount)
+        #expect(model.clips.count == model.scrollDepth)
+        await store.close()
+    }
+
+    /// Fewer clips than the shelf shows must not invent a scroll region or stretch the panel.
+    @Test("A shelf that is not full shows exactly what there is")
+    func shorterThanItemCount() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        for i in 1...3 { try await store.insert(clip("clip \(i)")) }
+
+        model.itemCount = 10
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 3)
+        #expect(model.visibleCardCount == 3)
         await store.close()
     }
 
@@ -172,7 +205,9 @@ struct ShelfViewModelTests {
         model.itemCount = 5
         model.start()
         try await Task.sleep(for: .milliseconds(300))
-        #expect(model.clips.count == 5, "should backfill with older non-secret clips")
+        #expect(model.visibleCardCount == 5, "should backfill with older non-secret clips")
+        #expect(!model.clips.contains { $0.sensitivity == .secret },
+                "and no secret may reach the strip, scrolled to or not")
         await store.close()
     }
 }

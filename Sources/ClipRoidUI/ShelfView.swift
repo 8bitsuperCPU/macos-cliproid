@@ -165,7 +165,10 @@ struct ShelfView: View {
     private var cards: some View {
         GeometryReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: ShelfMetrics.cardSpacing) {
+                // Lazy, because the strip now holds several screens' worth of clips so that it
+                // has something to scroll — building every card eagerly would cost a thumbnail
+                // each for cards the user may never scroll to.
+                LazyHStack(spacing: ShelfMetrics.cardSpacing) {
                     if model.clips.isEmpty {
                         Text(model.searchText.isEmpty ? "No clips yet" : "No matches")
                             .font(.system(size: 12))

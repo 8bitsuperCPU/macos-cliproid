@@ -305,8 +305,11 @@ public final class ShelfPanel: NSObject {
     /// shown, then capped so a shelf of twenty large cards cannot span the display.
     private func shelfSpan(in visible: NSRect) -> CGFloat {
         guard isExpanded else { return CGFloat(settings.collapsedLength) }
+        // The visible count, not the buffer: the strip holds more clips than it shows so there
+        // is something to scroll, and sizing to the buffer would stretch the shelf across the
+        // display instead.
         let content = ShelfMetrics.expandedLength(
-            cardCount: model.clips.count, thickness: thickness)
+            cardCount: model.visibleCardCount, thickness: thickness)
         let isHorizontal = model.position == .top || model.position == .bottom
             || model.position == .hidden
         let available = (isHorizontal ? visible.width : visible.height) * maxLengthFraction

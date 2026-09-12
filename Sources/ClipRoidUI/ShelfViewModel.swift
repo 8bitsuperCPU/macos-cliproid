@@ -40,6 +40,17 @@ public final class ShelfViewModel {
     public private(set) var categoryCounts: [Int64: Int] = [:]
     public var position: ShelfPosition = .top
     /// Spec §4.19 allows 5–20.
+    /// How many clips the strip holds, against `itemCount` which is how many it *shows*.
+    ///
+    /// The shelf is sized to fit exactly `itemCount` cards, so with the two equal the scroll view
+    /// had no overflow and swiping it did nothing — there was simply nothing to scroll. Holding
+    /// more than fits is what gives the trackpad and Magic Mouse something to move through, and
+    /// the extra rows were already being fetched and discarded.
+    var scrollDepth: Int { max(itemCount * 3, itemCount) }
+
+    /// How many cards the shelf is wide enough to show at once.
+    public var visibleCardCount: Int { min(clips.count, itemCount) }
+
     public var itemCount: Int = 10 {
         didSet { Task { await reload() } }
     }
@@ -128,8 +139,10 @@ public final class ShelfViewModel {
         let hideSecrets = settings.hideSecretsFromShelf
         let updated = Array(recent.lazy
             .filter { !hideSecrets || $0.sensitivity != .secret }
-            .prefix(itemCount))
-        let countChanged = updated.count != clips.count
+            .prefix(scrollDepth))
+        // The panel is sized from the visible count, not the buffer, so a deeper buffer must not
+        // make it re-lay out — that is the twitch this guard exists to prevent.
+        let countChanged = min(updated.count, itemCount) != visibleCardCount
         clips = updated
         // Only when the count changes: re-laying out the window on every content change would
         // make the shelf twitch every time a clip was copied.
