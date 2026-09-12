@@ -1,6 +1,7 @@
 import SwiftUI
 import ClipRoidCore
 import ClipRoidKit
+import ClipRoidImaging
 
 /// The detail panel: full content, metadata, and the per-clip actions from spec §4.11.
 struct ClipDetailPane: View {
@@ -18,6 +19,8 @@ struct ClipDetailPane: View {
     @State private var assignedCategories: Set<Int64> = []
     @State private var recognisedText: String?
     @State private var isRecognising = false
+    @State private var imageData: Data?
+    @State private var sampledColour: PixelSampler.Sample?
     @State private var tags: [String] = []
     @State private var newTag = ""
 
@@ -71,12 +74,15 @@ struct ClipDetailPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         } else if let url = thumbnailURL {
-            AsyncImage(url: url) { image in
-                image.resizable().aspectRatio(contentMode: .fit)
-            } placeholder: {
-                RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(height: 120)
+            VStack(alignment: .leading, spacing: 8) {
+                sampleableImage(url: url)
+                if let sampledColour {
+                    sampledColourRow(sampledColour)
+                } else if imageData != nil {
+                    Text("Click the image to read a colour.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
         } else if isEditing {
             VStack(alignment: .trailing, spacing: 8) {
                 TextEditor(text: $draft)
@@ -100,6 +106,77 @@ struct ClipDetailPane: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// The image, with click-to-sample.
+    ///
+    /// The click point is converted from view coordinates into image pixel coordinates, which is
+    /// why the displayed size has to be measured rather than assumed — the image is scaled to fit
+    /// and letterboxed, so the two spaces differ by both a scale and an offset.
+    private func sampleableImage(url: URL) -> some View {
+        GeometryReader { proxy in
+            AsyncImage(url: url) { image in
+                image.resizable().aspectRatio(contentMode: .fit)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        sample(at: location, in: proxy.size)
+                    }
+            } placeholder: {
+                RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .frame(height: 200)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func sampledColourRow(_ sample: PixelSampler.Sample) -> some View {
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(hex: sample.hex) ?? .gray)
+                .frame(width: 40, height: 40)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sample.hex).font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                Text(sample.rgb).font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            Spacer()
+            VStack(spacing: 4) {
+                Button("Copy HEX") { model.copySampledColour(sample.hex) }
+                    .controlSize(.small)
+                Button("Copy RGB") { model.copySampledColour(sample.rgb) }
+                    .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func sample(at location: CGPoint, in displayed: CGSize) {
+        guard let imageData, let size = clip.imageSize else { return }
+
+        // aspectRatio(.fit) letterboxes, so the drawn image is centred inside the frame with bars
+        // on one axis. Mapping straight from the frame would sample the wrong pixel everywhere
+        // except dead centre.
+        let imageAspect = Double(size.width) / Double(size.height)
+        let frameAspect = displayed.width / displayed.height
+        let drawn: CGSize = imageAspect > frameAspect
+            ? CGSize(width: displayed.width, height: displayed.width / imageAspect)
+            : CGSize(width: displayed.height * imageAspect, height: displayed.height)
+        let origin = CGPoint(x: (displayed.width - drawn.width) / 2,
+                             y: (displayed.height - drawn.height) / 2)
+
+        let inDrawn = CGPoint(x: location.x - origin.x, y: location.y - origin.y)
+        guard inDrawn.x >= 0, inDrawn.y >= 0,
+              inDrawn.x < drawn.width, inDrawn.y < drawn.height else { return }
+
+        let scale = Double(size.width) / drawn.width
+        let pixel = CGPoint(x: inDrawn.x * scale, y: inDrawn.y * scale)
+        sampledColour = PixelSampler.sample(imageData, at: pixel)
     }
 
     /// Text Vision found inside the image (spec §4.8).
@@ -309,6 +386,9 @@ struct ClipDetailPane: View {
         shortcutError = nil
         assignedCategories = await model.categoryIds(for: clip)
         recognisedText = await model.existingOCRText(for: clip)
+        sampledColour = nil
+        imageData = (clip.contentType == .image || clip.contentType == .screenshot)
+            ? await model.imageData(for: clip) : nil
         tags = await model.tags(for: clip)
         newTag = ""
     }

@@ -300,6 +300,19 @@ public final class LibraryViewModel {
         }
     }
 
+    /// Full-size image bytes, for the detail panel's eyedropper.
+    public func imageData(for summary: ClipSummary) async -> Data? {
+        guard let path = summary.thumbnailPath else { return nil }
+        // The full-size blob, not the thumbnail: sampling a 256px preview of a 3000px screenshot
+        // would report the colour of a blended pixel rather than the one the user clicked.
+        let full = path.replacingOccurrences(of: ".thumb.png", with: ".png")
+        return await store.imageData(forBlobPath: full)
+    }
+
+    public func copySampledColour(_ text: String) {
+        Task { await coordinator?.writeOnly(.text(text), originClipUUID: nil) }
+    }
+
     /// Text already on record, without starting recognition.
     public func existingOCRText(for summary: ClipSummary) async -> String? {
         try? await store.ocrText(forClip: summary.id)

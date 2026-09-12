@@ -26,9 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.log("ClipRoid terminating")
     }
 
-    /// Reopening from the Dock or Spotlight should bring the window back rather than doing nothing.
+    /// Reopening from the Dock or Spotlight brings the window back. Returning true lets AppKit
+    /// restore or recreate it, which is what makes the Dock icon work where a bare `activate`
+    /// does not.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        true
+        Diagnostics.log("Reopen requested (hasVisibleWindows: \(hasVisibleWindows))")
+        return true
     }
 }
 
@@ -38,6 +41,13 @@ struct ClipRoidApp: App {
     @State private var environment: AppEnvironment
     @State private var quickPaste: QuickPastePanel?
     @State private var shelf: ShelfPanel?
+    /// Mirrors the shelf's visibility for the menu.
+    ///
+    /// Reading `shelf?.isVisible` directly did not work: it is not observable, so the menu item's
+    /// label never refreshed. It kept reading "Hide Shelf" after hiding, and choosing it hid an
+    /// already-hidden shelf — leaving no way to bring it back.
+    @State private var isShelfShown = true
+    @Environment(\.openWindow) private var openWindow
 
     init() {
         // Set before anything else is built. A SwiftPM executable run via `swift run` has no
@@ -89,8 +99,29 @@ struct ClipRoidApp: App {
         Diagnostics.log("Shelf shown at \(model.position.rawValue)")
     }
 
+    static let libraryWindowID = "library"
+
+    /// Brings the Library back, creating it if the user closed it.
+    ///
+    /// `NSApplication.activate` alone only raises windows that still exist. Once the Library had
+    /// been closed, "Open ClipRoid" activated an app with no window and appeared to do nothing —
+    /// while clicking the Dock icon worked, because AppKit's reopen handler creates one.
+    @MainActor
+    private func openLibraryWindow() {
+        Diagnostics.log("Open ClipRoid chosen from the menu bar")
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        if let existing = NSApplication.shared.windows.first(where: {
+            $0.identifier?.rawValue.contains(Self.libraryWindowID) == true
+                || $0.title == "ClipRoid"
+        }), existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+        openWindow(id: Self.libraryWindowID)
+    }
+
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.libraryWindowID) {
             LibraryView(store: environment.store, environment: environment)
                 .frame(minWidth: 760, minHeight: 460)
                 .task {
@@ -124,12 +155,18 @@ struct ClipRoidApp: App {
         MenuBarExtra("ClipRoid", systemImage: "doc.on.clipboard") {
             Button("Quick Paste") { quickPaste?.show() }
                 .keyboardShortcut("v", modifiers: [.control, .command])
-            Button(shelf?.isVisible == true ? "Hide Shelf" : "Show Shelf") {
-                shelf?.isVisible == true ? shelf?.hide() : shelf?.show()
+
+            Button(isShelfShown ? "Hide Shelf" : "Show Shelf") {
+                if isShelfShown {
+                    shelf?.hide()
+                } else {
+                    shelf?.show()
+                }
+                isShelfShown.toggle()
             }
-            Button("Open ClipRoid") {
-                NSApplication.shared.activate(ignoringOtherApps: true)
-            }
+
+            Button("Open ClipRoid") { openLibraryWindow() }
+                .keyboardShortcut("o")
             Divider()
             Button("Quit ClipRoid") {
                 Task {

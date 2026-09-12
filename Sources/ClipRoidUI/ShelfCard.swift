@@ -56,7 +56,14 @@ struct ShelfCard: View {
             ShelfPreview(
                 clip: clip, model: model, settings: settings,
                 isPinned: isPreviewPinned,
-                onPin: { isPreviewPinned = true; closeTask?.cancel() },
+                onPin: {
+                    // Hand it to a window we own, then close the popover. A popover is transient
+                    // by construction and cannot be made to persist.
+                    closeTask?.cancel()
+                    showPreview = false
+                    PreviewWindowController.shared.show(
+                        clip: clip, model: model, settings: settings)
+                },
                 onClose: {
                     isPreviewPinned = false
                     closeTask?.cancel()
@@ -264,7 +271,6 @@ struct ShelfPreview: View {
         .frame(width: width, height: height)
         // A click anywhere pins the preview, so it survives the pointer leaving the card.
         .contentShape(Rectangle())
-        .onTapGesture { onPin() }
         .onHover { onHoverChanged($0) }
         .contextMenu { ShelfCardMenu(clip: clip, model: model) }
         .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) { await load() }
@@ -287,12 +293,20 @@ struct ShelfPreview: View {
             Spacer()
 
             if isPinned {
-                // Tools appear only once pinned. On an unpinned preview they would be unusable —
-                // reaching for one means leaving the card, and the preview is on its way out.
                 toolbar
             } else {
                 ClipTimestamp(date: clip.copiedAt, font: .caption)
                     .foregroundStyle(.secondary)
+                // An explicit button, because clicking the preview body cannot be relied upon:
+                // selectable text and scroll views consume the click before a tap gesture sees it.
+                Button(action: onPin) {
+                    Image(systemName: "pin")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("Keep this preview open")
             }
         }
     }
@@ -446,7 +460,7 @@ struct ShelfPreview: View {
             }
             .foregroundStyle(.secondary)
         } else {
-            Text(isPinned ? "Click ✕ to close" : "Click to keep open · drag to any app")
+            Text(isPinned ? "Stays open until you close it" : "Pin to keep open · drag to any app")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
