@@ -6,8 +6,12 @@ struct ShelfCard: View {
     let clip: ClipSummary
     @Bindable var model: ShelfViewModel
     var size: CGSize
+    /// Which way the preview should open, so it does not open off-screen.
+    var previewEdge: Edge = .bottom
 
     @State private var isHovered = false
+    @State private var showPreview = false
+    @State private var hoverTask: Task<Void, Never>?
     @State private var thumbnailURL: URL?
     @State private var preview = ""
 
@@ -25,11 +29,30 @@ struct ShelfCard: View {
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(ShelfPalette.cardBorder))
         .overlay(alignment: .top) { if isHovered { hoverActions } }
         .contentShape(RoundedRectangle(cornerRadius: 10))
-        .onHover { isHovered = $0 }
+        .onHover { inside in
+            isHovered = inside
+            hoverTask?.cancel()
+            guard inside else {
+                showPreview = false
+                return
+            }
+            // A short delay, so sweeping the pointer across the shelf to reach one card does not
+            // fire a popover for every card it passes over.
+            hoverTask = Task {
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                showPreview = true
+            }
+        }
+        .popover(isPresented: $showPreview, arrowEdge: previewEdge) {
+            ShelfPreview(clip: clip, model: model)
+        }
         .onTapGesture { model.paste(clip) }
         .draggable(clip.displayText)
         .contextMenu { ShelfCardMenu(clip: clip, model: model) }
-        .task(id: clip.id) {
+        // See TaskKey — enrichment lands under the same clip id, so keying on id alone leaves
+        // the card showing a placeholder forever.
+        .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) {
             thumbnailURL = await model.thumbnailURL(for: clip)
             preview = await model.fullText(for: clip)
         }
@@ -43,14 +66,14 @@ struct ShelfCard: View {
                     .foregroundStyle(.orange)
                 Text("Hidden")
                     .font(.system(size: 11))
-                    .foregroundStyle(ShelfPalette.secondaryText)
+                    .foregroundStyle(ShelfPalette.cardSecondaryText)
             }
         } else if let hex = clip.colorHex, let colour = Color(hex: hex) {
             HStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 5).fill(colour).frame(width: 26, height: 26)
                 Text(hex)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(ShelfPalette.primaryText)
+                    .foregroundStyle(ShelfPalette.cardPrimaryText)
             }
         } else if let thumbnailURL {
             AsyncImage(url: thumbnailURL) { image in
@@ -65,7 +88,7 @@ struct ShelfCard: View {
                 .font(.system(size: 11.5))
                 .lineLimit(lineLimit)
                 .multilineTextAlignment(.leading)
-                .foregroundStyle(ShelfPalette.primaryText)
+                .foregroundStyle(ShelfPalette.cardPrimaryText)
         }
     }
 
@@ -75,7 +98,7 @@ struct ShelfCard: View {
         HStack(spacing: 5) {
             AppIcon(bundleId: clip.sourceAppBundleId, side: 13)
             ClipTimestamp(date: clip.copiedAt, font: .system(size: 10))
-                .foregroundStyle(ShelfPalette.secondaryText)
+                .foregroundStyle(ShelfPalette.cardSecondaryText)
             Spacer(minLength: 0)
             if clip.isPinned {
                 Image(systemName: "pin.fill").font(.system(size: 8))
@@ -108,7 +131,7 @@ struct ShelfCard: View {
         Button(action: run) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(ShelfPalette.primaryText)
+                .foregroundStyle(ShelfPalette.cardPrimaryText)
                 .frame(width: 19, height: 19)
                 .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 5))
         }
@@ -138,5 +161,75 @@ struct ShelfCardMenu: View {
         Button("Paste", systemImage: "arrow.down.doc") { model.paste(clip) }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { model.delete(clip) }
+    }
+}
+
+/// The expanded preview shown when the pointer rests on a card (spec §4.3).
+///
+/// Worth having even though the card itself shows a preview: the card is a fixed size and clips
+/// long text to a few lines, whereas this shows the clip at a size you can actually read, the full
+/// image rather than a cropped fill, and the colour's value alongside its swatch.
+struct ShelfPreview: View {
+    let clip: ClipSummary
+    @Bindable var model: ShelfViewModel
+
+    @State private var thumbnailURL: URL?
+    @State private var fullText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                AppIcon(bundleId: clip.sourceAppBundleId, side: 14)
+                Text(clip.sourceAppName ?? "Unknown").font(.caption.weight(.medium))
+                Spacer()
+                ClipTimestamp(date: clip.copiedAt, font: .caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if clip.sensitivity == .secret {
+                Label("Hidden — this looks like a secret", systemImage: "eye.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let hex = clip.colorHex, let colour = Color(hex: hex) {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 6).fill(colour).frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(ColorFormats.allCases, id: \.self) { format in
+                            if let text = ColorFormats.string(format, fromHex: hex) {
+                                Text(text).font(.system(size: 11, design: .monospaced))
+                            }
+                        }
+                    }
+                }
+            } else if let thumbnailURL {
+                AsyncImage(url: thumbnailURL) { image in
+                    image.resizable().aspectRatio(contentMode: .fit)
+                } placeholder: {
+                    RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(height: 100)
+                }
+                .frame(maxHeight: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                if let size = clip.imageSize {
+                    Text("\(size.width) × \(size.height)")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            } else {
+                Text(fullText.isEmpty ? clip.displayText : fullText)
+                    .font(.system(.callout,
+                                  design: clip.contentType == .code ? .monospaced : .default))
+                    .lineLimit(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Text("Click to paste · drag to any app")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .frame(width: 300)
+        .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) {
+            thumbnailURL = await model.thumbnailURL(for: clip)
+            fullText = await model.fullText(for: clip)
+        }
     }
 }

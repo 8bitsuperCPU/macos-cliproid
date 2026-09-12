@@ -123,7 +123,15 @@ struct ClipThumbnail: View {
             }
         }
         .frame(width: side, height: side)
-        .task(id: clip.id) { url = await model.thumbnailURL(for: clip) }
+        // Keyed on the thumbnail path as well as the id.
+        //
+        // A clip is stored before enrichment runs, so it starts with no thumbnail. Enrichment
+        // fills one in and publishes an update carrying the *same* id — so a task keyed on id
+        // alone never re-runs, and the row shows a placeholder for the rest of the session. That
+        // is the "new image clips appear blank" bug: the thumbnail existed on disk the whole time.
+        .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) {
+            url = await model.thumbnailURL(for: clip)
+        }
     }
 }
 
@@ -198,6 +206,12 @@ struct ClipContextMenu: View {
         default: "Edit in Default App"
         }
     }
+}
+
+/// Identity for a view task that must also re-run when enrichment lands.
+struct TaskKey: Equatable {
+    var id: Int64
+    var thumbnail: String?
 }
 
 extension Color {

@@ -130,3 +130,57 @@ struct ColorHexTests {
         #expect(Color(hex: hex) == nil)
     }
 }
+
+@Suite("Shelf contrast")
+@MainActor
+struct ShelfContrastTests {
+    private func settings(background: ShelfBackground, hex: String,
+                          style: ShelfTextStyle = .automatic) -> SettingsStore {
+        let store = SettingsStore(
+            defaults: UserDefaults(suiteName: "Contrast-\(UUID().uuidString)")!)
+        store.shelfBackground = background
+        store.shelfTintHex = hex
+        store.shelfTextStyle = style
+        return store
+    }
+
+    /// The reported bug: a white background rendered white text, invisible.
+    @Test("A pale background gets dark text")
+    func paleBackgroundGetsDarkText() {
+        #expect(!ShelfPalette.usesLightText(settings(background: .custom, hex: "#FFFFFF")))
+        #expect(!ShelfPalette.usesLightText(settings(background: .custom, hex: "#F2F2F7")))
+        #expect(!ShelfPalette.usesLightText(settings(background: .custom, hex: "#B7DE72")))
+    }
+
+    @Test("A dark background gets light text")
+    func darkBackgroundGetsLightText() {
+        #expect(ShelfPalette.usesLightText(settings(background: .custom, hex: "#000000")))
+        #expect(ShelfPalette.usesLightText(settings(background: .custom, hex: "#2B4C7E")))
+        #expect(ShelfPalette.usesLightText(settings(background: .material, hex: "#FFFFFF")))
+    }
+
+    @Test("An explicit choice overrides the automatic one")
+    func explicitOverrides() {
+        #expect(ShelfPalette.usesLightText(
+            settings(background: .custom, hex: "#FFFFFF", style: .light)))
+        #expect(!ShelfPalette.usesLightText(
+            settings(background: .custom, hex: "#000000", style: .dark)))
+    }
+
+    /// Relative luminance weights green far above blue, matching how bright a colour actually
+    /// looks. A naive channel average would call pure blue as bright as pure green and pick
+    /// unreadable text for one of them.
+    @Test("Luminance is perceptual, not a channel average")
+    func luminanceIsPerceptual() {
+        let green = ShelfPalette.luminance(of: "#00FF00")
+        let blue = ShelfPalette.luminance(of: "#0000FF")
+        #expect(green > blue * 5)
+    }
+
+    /// Card text sits on a fixed dark surface, so it must NOT follow the panel — that would
+    /// reintroduce unreadable text whenever the panel went pale.
+    @Test("Card text is fixed regardless of the panel")
+    func cardTextIsFixed() {
+        #expect(ShelfPalette.cardPrimaryText == Color.white.opacity(0.92))
+    }
+}

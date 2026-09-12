@@ -44,6 +44,7 @@ public final class SettingsStore {
         self.storedCollapsedLength = Self.clampCollapsedLength(
             defaults.object(forKey: Key.collapsedLength) as? Double ?? 264)
         self.collapsedRainbow = defaults.bool(forKey: Key.collapsedRainbow)
+        self.shelfTextStyleRaw = defaults.string(forKey: Key.shelfTextStyle) ?? "automatic"
     }
 
     private enum Key {
@@ -69,6 +70,7 @@ public final class SettingsStore {
         static let collapsedThickness = "shelf.collapsed.thickness"
         static let collapsedLength = "shelf.collapsed.length"
         static let collapsedRainbow = "shelf.collapsed.rainbow"
+        static let shelfTextStyle = "shelf.textStyle"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -252,6 +254,14 @@ public final class SettingsStore {
         set { shelfBackgroundRaw = newValue.rawValue }
     }
 
+    private var shelfTextStyleRaw: String {
+        didSet { defaults.set(shelfTextStyleRaw, forKey: Key.shelfTextStyle) }
+    }
+    public var shelfTextStyle: ShelfTextStyle {
+        get { ShelfTextStyle(rawValue: shelfTextStyleRaw) ?? .automatic }
+        set { shelfTextStyleRaw = newValue.rawValue }
+    }
+
     public var shelfTintHex: String {
         didSet { defaults.set(shelfTintHex, forKey: Key.shelfTintHex) }
     }
@@ -263,6 +273,23 @@ public final class SettingsStore {
         RetentionPolicy(
             maxClipCount: maxClipCount > 0 ? maxClipCount : nil,
             maxAgeDays: maxClipAgeDays > 0 ? maxClipAgeDays : nil)
+    }
+}
+
+public enum ShelfTextStyle: String, CaseIterable, Sendable {
+    /// Chosen from the background's brightness. The default, because the failure it prevents —
+    /// white text on a white shelf, invisible — is one the user should never be able to reach by
+    /// picking a colour they liked.
+    case automatic
+    case light
+    case dark
+
+    public var displayName: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .light: "Light text"
+        case .dark: "Dark text"
+        }
     }
 }
 

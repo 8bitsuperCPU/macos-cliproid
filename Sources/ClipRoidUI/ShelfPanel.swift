@@ -29,6 +29,9 @@ public final class ShelfPanel: NSObject {
     private var pointerTimer: Timer?
     /// Expanded means the full panel is showing; collapsed means the nub.
     private var isExpanded = false
+    /// Tracks the auto-collapse preference so `applySettings` can tell a change of that setting
+    /// apart from a change to anything else.
+    private var wasAutoHiding = false
 
     /// Consecutive polls the pointer has been at the edge, or away from the shelf.
     ///
@@ -205,6 +208,7 @@ public final class ShelfPanel: NSObject {
         model.start()
         // Auto-collapse starts collapsed; the nub stays on screen as the affordance.
         isExpanded = !settings.shelfAutoHide
+        wasAutoHiding = settings.shelfAutoHide
         updateAutoHideMonitor()
         render()
         reposition()

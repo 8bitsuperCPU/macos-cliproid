@@ -161,6 +161,18 @@ public struct SettingsView: View {
                 }
                 .onChange(of: settings.shelfBackground) { _, _ in onShelfChange() }
 
+                Picker("Text", selection: $settings.shelfTextStyle) {
+                    ForEach(ShelfTextStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .onChange(of: settings.shelfTextStyle) { _, _ in onShelfChange() }
+
+                if settings.shelfTextStyle == .automatic {
+                    Text("Chosen from the background's brightness, so a pale shelf gets dark text rather than invisible white text.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
                 if settings.shelfBackground == .custom {
                     ColorPicker("Colour", selection: Binding(
                         get: { Color(hex: settings.shelfTintHex) ?? .black },

@@ -13,6 +13,8 @@ public struct LibraryView: View {
     /// the store is full. The view has to own the model for it to survive a re-render.
     @State private var model: LibraryViewModel
     let environment: AppEnvironment
+    /// Remembered across launches, since HSplitView does not persist its divider.
+    @AppStorage("library.detailWidth") private var detailWidth: Double = 340
 
     public init(store: ClipStore, environment: AppEnvironment) {
         _model = State(initialValue: LibraryViewModel(
@@ -29,10 +31,12 @@ public struct LibraryView: View {
                 clipsPane
                 if let selected = model.singleSelection {
                     ClipDetailPane(clip: selected, model: model, environment: environment)
-                        .frame(minWidth: 280, idealWidth: 340)
+                        .frame(minWidth: 260, idealWidth: detailWidth, maxWidth: 640)
+                        .background(DetailWidthReporter { detailWidth = $0 })
                 }
             }
         }
+        .persistentWindowFrame("ClipRoidLibrary", minSize: NSSize(width: 760, height: 460))
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search clips")
         .toolbar { toolbarContent }
         .task { model.start() }
@@ -258,6 +262,24 @@ extension ClipContentType {
         case .note: "Notes"
         case .multiClip: "Multi-clip"
         case .unknown: "Other"
+        }
+    }
+}
+
+
+/// Reports the detail pane's live width so the divider position can be remembered.
+///
+/// `HSplitView` does not persist its divider, so without this the detail pane snapped back to its
+/// default every launch however it had been left.
+struct DetailWidthReporter: NSViewRepresentable {
+    var onChange: (Double) -> Void
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            let width = nsView.superview?.frame.width ?? 0
+            if width > 100 { onChange(Double(width)) }
         }
     }
 }

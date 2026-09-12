@@ -36,7 +36,7 @@ struct ClipDetailPane: View {
             Divider()
             actions
         }
-        .task(id: clip.id) { await load() }
+        .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) { await load() }
     }
 
     private var header: some View {

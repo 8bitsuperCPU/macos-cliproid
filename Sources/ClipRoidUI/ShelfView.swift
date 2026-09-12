@@ -34,6 +34,17 @@ struct ShelfView: View {
 
     private var thickness: CGFloat { CGFloat(settings.shelfThickness) }
 
+    /// A preview must open away from the screen edge the shelf is pinned to, or it opens
+    /// off-screen and macOS flips it somewhere unhelpful.
+    private var popoverEdge: Edge {
+        switch model.position {
+        case .top, .hidden: .bottom
+        case .bottom: .top
+        case .left: .trailing
+        case .right: .leading
+        }
+    }
+
     var body: some View {
         Group {
             if isCollapsed {
@@ -67,7 +78,7 @@ struct ShelfView: View {
             chipsRow
             Text(sectionTitle)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(ShelfPalette.secondaryText)
+                .foregroundStyle(ShelfPalette.secondaryText(settings))
             cards
         }
         .padding(ShelfMetrics.padding)
@@ -91,11 +102,11 @@ struct ShelfView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
-                .foregroundStyle(ShelfPalette.secondaryText)
+                .foregroundStyle(ShelfPalette.secondaryText(settings))
             TextField("Search", text: $model.searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
-                .foregroundStyle(ShelfPalette.primaryText)
+                .foregroundStyle(ShelfPalette.primaryText(settings))
 
             Spacer(minLength: 8)
 
@@ -139,12 +150,13 @@ struct ShelfView: View {
                 if model.clips.isEmpty {
                     Text(model.searchText.isEmpty ? "No clips yet" : "No matches")
                         .font(.system(size: 12))
-                        .foregroundStyle(ShelfPalette.tertiaryText)
+                        .foregroundStyle(ShelfPalette.tertiaryText(settings))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     ForEach(model.clips) { clip in
                         ShelfCard(clip: clip, model: model,
-                                  size: ShelfMetrics.cardSize(forThickness: thickness))
+                                  size: ShelfMetrics.cardSize(forThickness: thickness),
+                                  previewEdge: popoverEdge)
                     }
                 }
             }
@@ -161,13 +173,13 @@ struct ShelfView: View {
                 if let count, count > 0 {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isOn ? ShelfPalette.selectedChipText.opacity(0.55)
-                                              : ShelfPalette.tertiaryText)
+                        .foregroundStyle(isOn ? ShelfPalette.selectedChipText(settings).opacity(0.55)
+                                              : ShelfPalette.tertiaryText(settings))
                 }
             }
             .padding(.horizontal, 11).padding(.vertical, 5)
-            .background(isOn ? ShelfPalette.selectedChip : ShelfPalette.controlFill, in: Capsule())
-            .foregroundStyle(isOn ? ShelfPalette.selectedChipText : ShelfPalette.primaryText)
+            .background(isOn ? ShelfPalette.selectedChip(settings) : ShelfPalette.control(settings), in: Capsule())
+            .foregroundStyle(isOn ? ShelfPalette.selectedChipText(settings) : ShelfPalette.primaryText(settings))
         }
         .buttonStyle(.plain)
     }
@@ -176,9 +188,9 @@ struct ShelfView: View {
         Button(action: run) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(ShelfPalette.primaryText)
+                .foregroundStyle(ShelfPalette.primaryText(settings))
                 .frame(width: 26, height: 26)
-                .background(ShelfPalette.controlFill, in: RoundedRectangle(cornerRadius: 7))
+                .background(ShelfPalette.control(settings), in: RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -189,9 +201,9 @@ struct ShelfView: View {
         Button(action: run) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isOn ? ShelfPalette.selectedChipText : ShelfPalette.primaryText)
+                .foregroundStyle(isOn ? ShelfPalette.selectedChipText(settings) : ShelfPalette.primaryText(settings))
                 .frame(width: 26, height: 26)
-                .background(isOn ? ShelfPalette.selectedChip : ShelfPalette.controlFill,
+                .background(isOn ? ShelfPalette.selectedChip(settings) : ShelfPalette.control(settings),
                             in: RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
