@@ -7,15 +7,18 @@
 #
 #   Scripts/bundle.sh [debug|release]       # local build, self-signed
 #   Scripts/bundle.sh release --notarize    # Developer ID, hardened runtime, notarized, stapled
+#   Scripts/bundle.sh release --dmg         # also produce a .dmg to hand to someone
 #
 set -euo pipefail
 
 CONFIGURATION="release"
 NOTARIZE=0
+MAKE_DMG=0
 for arg in "$@"; do
     case "$arg" in
         debug|release) CONFIGURATION="$arg" ;;
         --notarize) NOTARIZE=1 ;;
+        --dmg) MAKE_DMG=1 ;;
         *) echo "error: unknown argument '$arg'" >&2; exit 2 ;;
     esac
 done
@@ -184,3 +187,39 @@ fi
 
 codesign --verify --strict --deep "$APP"
 echo "Built $APP"
+
+if [[ "$MAKE_DMG" -eq 1 ]]; then
+    DMG="$DIST/$APP_NAME-$VERSION.dmg"
+    STAGE="$(mktemp -d)"
+    trap 'rm -rf "$STAGE"' EXIT
+
+    # A copy, not a move: the .app has to stay in dist/ for the next `open dist/ClipDroid.app`.
+    # -R preserves the signature; plain cp -r would not.
+    ditto "$APP" "$STAGE/$APP_NAME.app"
+    # The conventional drag-to-install target. Without it the recipient runs the app from the
+    # read-only disk image, where it cannot write its own preferences and looks broken.
+    ln -s /Applications "$STAGE/Applications"
+
+    rm -f "$DMG"
+    hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG"
+
+    if [[ "$NOTARIZE" -eq 1 ]]; then
+        # The disk image is notarized and stapled in its own right, so Gatekeeper clears it
+        # without the recipient's Mac having to reach Apple at open time.
+        xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+        xcrun stapler staple "$DMG"
+        echo "Built $DMG (notarized and stapled)"
+    else
+        echo "Built $DMG"
+        echo
+        echo "warning: this disk image is NOT notarized." >&2
+        echo "         It is signed with '$SIGN_IDENTITY', which is a development identity." >&2
+        echo "         Gatekeeper will refuse to open it on anyone else's Mac: they will be told" >&2
+        echo "         ClipDroid 'cannot be opened because Apple cannot check it for malicious" >&2
+        echo "         software'. On macOS 15 and later, Control-clicking Open no longer gets" >&2
+        echo "         past this — the recipient has to open System Settings > Privacy &" >&2
+        echo "         Security and press 'Open Anyway' after the first refusal." >&2
+        echo "         Notarizing properly needs a Developer ID Application certificate, which" >&2
+        echo "         requires the paid Apple Developer Program. Then: --notarize --dmg." >&2
+    fi
+fi
