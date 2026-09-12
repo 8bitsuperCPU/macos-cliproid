@@ -51,8 +51,16 @@ public struct LibraryView: View {
 
     private var clipsPane: some View {
         VStack(spacing: 0) {
-            TypeFilterChips(model: model)
-            Divider()
+            // Only under "All Clips".
+            //
+            // Within a Type section they contradict the sidebar — picking Images in the sidebar
+            // and then Text in the chips can only ever produce nothing — and within an App or Tag
+            // they are a second, quieter copy of a filter already applied. Showing them
+            // everywhere made the two rows argue with each other.
+            if model.section == .all {
+                TypeFilterChips(model: model)
+                Divider()
+            }
             if model.clips.isEmpty {
                 emptyState
             } else {
@@ -124,6 +132,10 @@ struct LibrarySidebar: View {
     @Bindable var model: LibraryViewModel
     @State private var isAddingCategory = false
     @State private var newCategoryName = ""
+    // Remembered across launches: a sidebar the user collapsed should stay collapsed.
+    @AppStorage("library.sidebar.tagsExpanded") private var tagsExpanded = true
+    @AppStorage("library.sidebar.appsExpanded") private var appsExpanded = true
+    @AppStorage("library.sidebar.typesExpanded") private var typesExpanded = true
 
     var body: some View {
         List(selection: Binding(
@@ -166,14 +178,16 @@ struct LibrarySidebar: View {
                 Text("Categories")
             }
 
-            Section("Types") {
+            Section(isExpanded: $typesExpanded) {
                 ForEach(ClipContentType.allCases.filter { model.typeCounts[$0] ?? 0 > 0 }, id: \.self) { type in
                     row(.type(type), type.displayName, type.symbolName, count: model.typeCounts[type])
                 }
+            } header: {
+                Text("Types")
             }
 
             if !model.tagCounts.isEmpty {
-                Section("Tags") {
+                Section(isExpanded: $tagsExpanded) {
                     ForEach(model.tagCounts, id: \.name) { tag in
                         HStack {
                             Image(systemName: "tag")
@@ -185,10 +199,12 @@ struct LibrarySidebar: View {
                         }
                         .tag(LibrarySection.tag(tag.name))
                     }
+                } header: {
+                    Text("Tags")
                 }
             }
 
-            Section("Apps") {
+            Section(isExpanded: $appsExpanded) {
                 ForEach(model.sourceApps.prefix(12), id: \.bundleId) { app in
                     HStack {
                         AppIcon(bundleId: app.bundleId, side: 15)
@@ -200,6 +216,8 @@ struct LibrarySidebar: View {
                     }
                     .tag(LibrarySection.app(app.bundleId))
                 }
+            } header: {
+                Text("Apps")
             }
         }
         .listStyle(.sidebar)

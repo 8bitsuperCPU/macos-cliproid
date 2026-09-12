@@ -134,6 +134,7 @@ struct ClipDetailPane: View {
                 Group {
                     if let fullImageURL {
                         ZoomableImage(url: fullImageURL, imageSize: clip.imageSize)
+                            // Only a double-click here; the zoom controls own single clicks.
                             .onTapGesture(count: 2) { model.isDetailExpanded = false }
                     } else {
                         contentSection.padding(14)
@@ -173,13 +174,21 @@ struct ClipDetailPane: View {
                     // Only when there is something to sample — an eyedropper over an image that
                     // cannot be read would promise something the click does not deliver.
                     .cursor(imageData != nil ? .eyedropper : .arrow)
-                    .onTapGesture(count: 2) {
-                        // Double-click fills the window; double-click again restores the column.
-                        model.isDetailExpanded.toggle()
-                    }
-                    .onTapGesture { location in
-                        sample(at: location, in: proxy.size)
-                    }
+                    // One composed gesture, not two stacked .onTapGesture modifiers.
+                    //
+                    // Stacking count:2 and count:1 does not work: the single-tap recogniser fires
+                    // the moment the first click lands, so the double-click never completes and
+                    // expanding silently did nothing. `.exclusively(before:)` gives the
+                    // double-click first refusal and only samples a colour once it has failed.
+                    .gesture(
+                        SpatialTapGesture(count: 2)
+                            .onEnded { _ in model.isDetailExpanded.toggle() }
+                            .exclusively(before:
+                                SpatialTapGesture(count: 1)
+                                    .onEnded { value in
+                                        sample(at: value.location, in: proxy.size)
+                                    })
+                    )
             } placeholder: {
                 RoundedRectangle(cornerRadius: 8).fill(.quaternary)
             }

@@ -15,7 +15,18 @@ struct ClipGridView: View {
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(model.clips) { clip in
                     card(clip)
-                        .onTapGesture { model.selection = [clip.id] }
+                        .gesture(
+                            TapGesture(count: 2)
+                                .onEnded {
+                                    model.selection = [clip.id]
+                                    if clip.contentType == .image || clip.contentType == .screenshot {
+                                        model.isDetailExpanded = true
+                                    }
+                                }
+                                .exclusively(before:
+                                    TapGesture(count: 1)
+                                        .onEnded { model.selection = [clip.id] })
+                        )
                         .contextMenu { ClipContextMenu(clip: clip, model: model) }
                         .onAppear {
                             if clip.id == model.clips.last?.id {

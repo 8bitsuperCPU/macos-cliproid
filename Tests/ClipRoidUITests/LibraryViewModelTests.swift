@@ -176,3 +176,26 @@ struct ExpandedDetailTests {
         #expect(m.isDetailExpanded, "the clip being shown is still there")
     }
 }
+
+@Suite("Section filters")
+@MainActor
+struct SectionFilterTests {
+    /// The type chips are only shown under "All Clips". Inside a Type section they contradict the
+    /// sidebar — Images in the sidebar plus Text in the chips can only ever return nothing — and
+    /// inside an App or Tag they restate a filter already applied.
+    @Test("Only the All section is the unfiltered one")
+    func allIsDistinct() {
+        #expect(LibrarySection.all == LibrarySection.all)
+        #expect(LibrarySection.all != LibrarySection.pinned)
+        #expect(LibrarySection.all != LibrarySection.type(.image))
+        #expect(LibrarySection.all != LibrarySection.app("com.apple.Safari"))
+        #expect(LibrarySection.all != LibrarySection.tag("invoice"))
+    }
+
+    @Test("Sections of the same kind compare by their value")
+    func sectionsCompareByValue() {
+        #expect(LibrarySection.type(.image) == LibrarySection.type(.image))
+        #expect(LibrarySection.type(.image) != LibrarySection.type(.code))
+        #expect(LibrarySection.tag("a") != LibrarySection.tag("b"))
+    }
+}
