@@ -8,6 +8,30 @@ import ClipRoidKit
 @MainActor
 struct ShelfMetricsTests {
 
+    /// The Settings slider and the clamp drifted apart: the slider ran 44...170 while the clamp
+    /// allowed 150...350, so two thirds of the slider's travel resolved to 150 and the top of the
+    /// range could not be reached at all. It read as "the slider does nothing".
+    @Test("The thickness slider covers exactly the range the clamp accepts")
+    func sliderRangeMatchesClamp() {
+        let range = SettingsStore.thicknessRange
+        #expect(SettingsStore.clampThickness(range.lowerBound) == range.lowerBound)
+        #expect(SettingsStore.clampThickness(range.upperBound) == range.upperBound)
+        // Nothing inside the slider's travel may clamp to a different value, or that part of the
+        // track is inert.
+        for step in stride(from: range.lowerBound, through: range.upperBound, by: 2) {
+            #expect(SettingsStore.clampThickness(step) == step)
+        }
+    }
+
+    /// Chrome used to cost 102pt, so a 170pt shelf spent more than half its height before showing
+    /// a clip.
+    @Test("Chrome leaves most of the shelf to the cards")
+    func chromeIsProportionate() {
+        let thickness = SettingsStore.thicknessRange.lowerBound
+        let cards = ShelfMetrics.cardHeight(forThickness: CGFloat(thickness))
+        #expect(cards > CGFloat(thickness) / 2)
+    }
+
     @Test("Cards grow with shelf thickness")
     func cardsTrackThickness() {
         let small = ShelfMetrics.cardSize(forThickness: 200)

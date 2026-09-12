@@ -200,7 +200,15 @@ public final class SettingsStore {
     /// The expanded panel's height. It carries a search row, a chip row, a section header and a
     /// row of cards, so the useful range starts where a card is still legible and stops before
     /// the shelf becomes a window in its own right.
-    public nonisolated static func clampThickness(_ value: Double) -> Double { min(max(value, 150), 350) }
+    /// The single source of truth for how tall the shelf may be.
+    ///
+    /// Settings binds its slider to this rather than repeating the numbers: when the two drifted
+    /// apart the slider silently stopped working, because most of its travel clamped to one value.
+    public nonisolated static let thicknessRange: ClosedRange<Double> = 150...350
+
+    public nonisolated static func clampThickness(_ value: Double) -> Double {
+        min(max(value, thicknessRange.lowerBound), thicknessRange.upperBound)
+    }
 
     /// Above this, tiles are tall enough to show a useful preview of the clip rather than just an
     /// icon. Below it a preview would be a few illegible pixels.

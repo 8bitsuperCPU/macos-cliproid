@@ -167,9 +167,13 @@ public struct SettingsView: View {
 
             Section("Size") {
                 VStack(alignment: .leading, spacing: 4) {
+                    // The range MUST track SettingsStore.clampThickness. When these disagreed
+                    // the slider looked broken: the clamp floor sat two thirds of the way along
+                    // the track, so most of its travel resolved to the same value and dragging
+                    // did nothing, while the top of the range was unreachable.
                     Slider(
                         value: $settings.shelfThickness,
-                        in: 44...170, step: 2
+                        in: SettingsStore.thicknessRange, step: 2
                     ) {
                         Text("Size")
                     } minimumValueLabel: {

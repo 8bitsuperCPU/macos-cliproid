@@ -6,15 +6,16 @@ import ClipRoidKit
 /// the shelf would clip its own contents or leave dead space.
 enum ShelfMetrics {
     static let cardSpacing: CGFloat = 6
-    static let padding: CGFloat = 10
-    static let rowSpacing: CGFloat = 7
+    static let padding: CGFloat = 8
+    static let rowSpacing: CGFloat = 5
 
-    /// What the search row, chip row, section header, their spacings and the panel padding cost.
+    /// What the search row, the chip row, their spacings and the panel padding cost.
     ///
-    /// Measured against the real controls rather than estimated. The previous value overstated it,
-    /// so cards were computed smaller than the space actually available and the difference showed
-    /// up as dead space under them.
-    static let chromeHeight: CGFloat = 10 + 24 + 7 + 24 + 7 + 13 + 7 + 10
+    /// Measured against the real controls rather than estimated. This used to include a section
+    /// header row and more generous padding, which together cost 102pt — on a 170pt shelf that is
+    /// more than half the height spent on chrome before a single clip is shown. The header said
+    /// what the selected chip already says, so it went; the padding was tightened.
+    static let chromeHeight: CGFloat = padding + 24 + rowSpacing + 24 + rowSpacing + padding
 
     /// The height left for cards once the chrome has taken its share.
     static func cardHeight(forThickness thickness: CGFloat) -> CGFloat {
@@ -92,16 +93,6 @@ struct ShelfView: View {
         VStack(alignment: .leading, spacing: ShelfMetrics.rowSpacing) {
             searchRow
             chipsRow
-            HStack(spacing: 6) {
-                Text(sectionTitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(ShelfPalette.secondaryText(settings))
-                if !model.clips.isEmpty {
-                    Text("\(model.clips.count)")
-                        .font(.system(size: 10).monospacedDigit())
-                        .foregroundStyle(ShelfPalette.tertiaryText(settings))
-                }
-            }
             cards
         }
         .padding(ShelfMetrics.padding)
@@ -109,16 +100,6 @@ struct ShelfView: View {
         .background(ShelfPalette.panel(settings))
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.08)))
-    }
-
-    private var sectionTitle: String {
-        if let id = model.activeCategoryId,
-           let category = model.categories.first(where: { $0.id == id }) {
-            return category.name
-        }
-        if model.favouritesOnly { return "Favourites" }
-        if !model.searchText.isEmpty { return "Results" }
-        return "Recent"
     }
 
     private var searchRow: some View {
@@ -132,6 +113,15 @@ struct ShelfView: View {
                 .foregroundStyle(ShelfPalette.primaryText(settings))
 
             Spacer(minLength: 8)
+
+            // The clip count lived under a section header of its own. That header duplicated the
+            // selected chip, so it was removed and the count rehomed here, where the search row
+            // already had width going spare.
+            if !model.clips.isEmpty {
+                Text("\(model.clips.count)")
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(ShelfPalette.tertiaryText(settings))
+            }
 
             iconButton("square.and.pencil", "New note") { model.createNote() }
             iconButton("arrow.up.forward", "Open Library") { model.openLibrary?() }
