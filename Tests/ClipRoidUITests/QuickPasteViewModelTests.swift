@@ -178,6 +178,74 @@ struct ShelfViewModelTests {
         await store.close()
     }
 
+    /// The shelf's type chips narrow it the same way the Library's do.
+    @Test("Shelf type chips filter the strip")
+    func shelfTypeChips() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        for i in 1...4 { try await store.insert(clip("text \(i)")) }
+        for i in 1...3 {
+            try await store.insert(CapturedClip(
+                contentType: .image, contentHash: Dedupe.hash("img \(i)"), body: "img \(i)"))
+        }
+
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 7)
+        #expect(model.availableTypes.contains(.image))
+        #expect(model.availableTypes.contains(.text))
+
+        model.activeTypes = [.image]
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 3)
+        #expect(model.clips.allSatisfy { $0.contentType == .image })
+
+        model.activeTypes = []
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 7, "clearing the chips restores the whole strip")
+        await store.close()
+    }
+
+    /// Offering a chip for a type the user has never copied gives them a filter that can only
+    /// ever empty the shelf.
+    @Test("Only types that exist are offered as chips")
+    func shelfOffersOnlyPresentTypes() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        try await store.insert(clip("just text"))
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(model.availableTypes == [.text])
+        #expect(!model.availableTypes.contains(.image))
+        await store.close()
+    }
+
+    /// Type chips and the favourites toggle both narrow the same query rather than replacing
+    /// one another.
+    @Test("Shelf type chips compose with the favourites filter")
+    func shelfTypeChipsComposeWithFavourites() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        let plain = try await store.insert(CapturedClip(
+            contentType: .image, contentHash: Dedupe.hash("plain"), body: "plain"))
+        let starred = try await store.insert(CapturedClip(
+            contentType: .image, contentHash: Dedupe.hash("starred"), body: "starred"))
+        try await store.insert(clip("some text"))
+        try await store.setFavorite(true, ids: [starred.id])
+        _ = plain
+
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        model.activeTypes = [.image]
+        model.favouritesOnly = true
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(model.clips.count == 1, "images AND favourites, not either")
+        #expect(model.clips.first?.preview == "starred")
+        await store.close()
+    }
+
     /// Fewer clips than the shelf shows must not invent a scroll region or stretch the panel.
     @Test("A shelf that is not full shows exactly what there is")
     func shorterThanItemCount() async throws {

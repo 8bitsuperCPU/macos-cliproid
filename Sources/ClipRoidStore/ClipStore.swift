@@ -241,11 +241,40 @@ public actor ClipStore {
         )
     }
 
-    public func recent(limit: Int = 200, before: Date? = nil) async throws -> [ClipSummary] {
+    /// The `ORDER BY` body for a sort, with an optional table alias.
+    ///
+    /// Every fragment is a compile-time constant chosen by a closed enum — no caller-supplied
+    /// string reaches this, which is what makes interpolating it into SQL safe. `copied_at DESC`
+    /// is appended as a tiebreak so equal sizes, types or apps still come out newest-first
+    /// instead of in whatever order the index happens to yield.
+    /// `pinnedFirst` floats pinned clips to the top, and is only honoured for `.automatic`: a
+    /// user who asked for largest-first means largest-first. It must stay off wherever the
+    /// timestamp cursor is used, because a pinned old clip at the top of the list makes
+    /// "everything older than my last row" skip rows that belong on the next page.
+    static func orderClause(
+        _ sort: ClipSort, alias: String = "", pinnedFirst: Bool = false
+    ) -> String {
+        let p = alias.isEmpty ? "" : "\(alias)."
+        let pin = (pinnedFirst && sort == .automatic) ? "\(p)is_pinned DESC, " : ""
+        switch sort {
+        case .automatic, .newest: return pin + "\(p)copied_at DESC"
+        case .oldest: return "\(p)copied_at ASC"
+        case .largest: return "\(p)content_size_bytes DESC, \(p)copied_at DESC"
+        case .smallest: return "\(p)content_size_bytes ASC, \(p)copied_at DESC"
+        case .type: return "\(p)content_type, \(p)copied_at DESC"
+        // NOCASE so "Figma" and "figma" are one group rather than two, and NULLS LAST so clips
+        // with no attribution do not head the list.
+        case .app: return "\(p)source_app_name IS NULL, \(p)source_app_name COLLATE NOCASE, \(p)copied_at DESC"
+        }
+    }
+
+    public func recent(
+        limit: Int = 200, before: Date? = nil, sort: ClipSort = .automatic
+    ) async throws -> [ClipSummary] {
         let sql = """
         SELECT \(Self.summaryColumns) FROM clips
         WHERE (? IS NULL OR copied_at < ?)
-        ORDER BY copied_at DESC LIMIT ?;
+        ORDER BY \(Self.orderClause(sort)) LIMIT ?;
         """
         let cursor: SQLValue = before.map { .date($0) } ?? .null
         return try await db.query(sql, [cursor, cursor, .int(limit)]).map(decodeSummary)
@@ -291,7 +320,9 @@ public actor ClipStore {
     // MARK: - Search
 
     /// Runs a parsed query. This is the entry point the Quick Paste window uses.
-    public func search(_ query: SearchQuery, limit: Int = 50) async throws -> [ClipSummary] {
+    public func search(
+        _ query: SearchQuery, limit: Int = 50, sort: ClipSort = .automatic
+    ) async throws -> [ClipSummary] {
         // A shortcut is an exact lookup, not a search — typing ";welcome" should land on that one
         // clip immediately rather than ranking it among fuzzy matches (spec §4.5).
         if let shortcut = query.shortcut {
@@ -299,7 +330,7 @@ public actor ClipStore {
                 "SELECT \(Self.summaryColumns) FROM clips WHERE shortcut = ? LIMIT 1;",
                 [.text(shortcut)]).map(decodeSummary)
         }
-        return try await runSearch(query, limit: limit)
+        return try await runSearch(query, limit: limit, sort: sort)
     }
 
 
@@ -324,7 +355,9 @@ public actor ClipStore {
         return try await runSearch(query, limit: limit)
     }
 
-    private func runSearch(_ query: SearchQuery, limit: Int) async throws -> [ClipSummary] {
+    private func runSearch(
+        _ query: SearchQuery, limit: Int, sort: ClipSort = .automatic
+    ) async throws -> [ClipSummary] {
         let types = query.types
         let from = query.from
         let to = query.to
@@ -333,7 +366,7 @@ public actor ClipStore {
         // With no free-text term there is nothing to MATCH against, so skip FTS entirely and let
         // the composite indexes serve the filters directly.
         guard let term else {
-            return try await filtered(query, limit: limit)
+            return try await filtered(query, limit: limit, sort: sort)
         }
 
         var sql = """
@@ -364,7 +397,13 @@ public actor ClipStore {
         }
         if query.favoritesOnly { sql += " AND c.is_favorite = 1" }
         if query.pinnedOnly { sql += " AND c.is_pinned = 1" }
-        sql += " ORDER BY bm25(clip_fts, 10.0, 3.0, 5.0), c.copied_at DESC LIMIT ?;"
+        // bm25 ranking is what the weighted FTS index exists for, so it leads under .automatic.
+        // An explicit sort replaces it outright: a user who picked "Oldest first" while searching
+        // wants oldest matches, not the best match that happens to be old.
+        sql += sort == .automatic
+            ? " ORDER BY bm25(clip_fts, 10.0, 3.0, 5.0), c.copied_at DESC LIMIT ?;"
+            : " ORDER BY \(Self.orderClause(sort, alias: "c")) LIMIT ?;"
+
         values.append(.int(limit))
 
         // The joined query selects from `clips` aliased as c, so the shared column list needs the
@@ -376,7 +415,9 @@ public actor ClipStore {
 
     /// Chips-only queries skip FTS entirely — there is nothing to MATCH against, and the composite
     /// `(filter, copied_at DESC)` indexes serve these directly with no sort step.
-    private func filtered(_ query: SearchQuery, limit: Int) async throws -> [ClipSummary] {
+    private func filtered(
+        _ query: SearchQuery, limit: Int, sort: ClipSort = .automatic
+    ) async throws -> [ClipSummary] {
         var sql = "SELECT \(Self.summaryColumns) FROM clips WHERE 1=1"
         var values: [SQLValue] = []
         if !query.types.isEmpty {
@@ -392,7 +433,7 @@ public actor ClipStore {
         if let to = query.to { sql += " AND copied_at <= ?"; values.append(.date(to)) }
         if query.favoritesOnly { sql += " AND is_favorite = 1" }
         if query.pinnedOnly { sql += " AND is_pinned = 1" }
-        sql += " ORDER BY is_pinned DESC, copied_at DESC LIMIT ?;"
+        sql += " ORDER BY \(Self.orderClause(sort, pinnedFirst: true)) LIMIT ?;"
         values.append(.int(limit))
         return try await db.query(sql, values).map(decodeSummary)
     }

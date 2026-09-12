@@ -136,9 +136,14 @@ struct ShelfView: View {
                     if model.favouritesOnly { model.activeCategoryId = nil }
                 }
 
-                chip("All", count: nil, isOn: model.activeCategoryId == nil && !model.favouritesOnly) {
+                chip("All", count: nil,
+                     isOn: model.activeCategoryId == nil && !model.favouritesOnly
+                        && model.activeTypes.isEmpty) {
                     model.activeCategoryId = nil
                     model.favouritesOnly = false
+                    // Clears the type chips as well. Leaving them set while "All" lights up would
+                    // show a filtered shelf that claims to be unfiltered.
+                    model.activeTypes = []
                 }
 
                 ForEach(model.categories) { category in
@@ -152,6 +157,24 @@ struct ShelfView: View {
                 }
 
                 iconButton("plus", "New collection") { isAddingCategory = true }
+
+                // Content types, after the collections. Only types that exist are offered, so the
+                // row does not fill with chips that can only ever return nothing. The row already
+                // scrolls horizontally, so these cost the shelf no height.
+                if !model.availableTypes.isEmpty {
+                    Divider().frame(height: 14).padding(.horizontal, 2)
+                    ForEach(model.availableTypes, id: \.self) { type in
+                        chip(type.displayName,
+                             count: model.typeCounts[type],
+                             isOn: model.activeTypes.contains(type)) {
+                            if model.activeTypes.contains(type) {
+                                model.activeTypes.remove(type)
+                            } else {
+                                model.activeTypes.insert(type)
+                            }
+                        }
+                    }
+                }
             }
         }
         .frame(height: 24)

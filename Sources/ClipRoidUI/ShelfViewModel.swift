@@ -35,6 +35,11 @@ public final class ShelfViewModel {
     /// nil means "All".
     public var activeCategoryId: Int64? { didSet { Task { await reload() } } }
     public var favouritesOnly = false { didSet { Task { await reload() } } }
+    /// Content-type chips, matching the Library's. Additive with the category and favourites
+    /// filters — all three narrow the same query rather than replacing one another.
+    public var activeTypes: Set<ClipContentType> = [] { didSet { Task { await reload() } } }
+    /// Which types actually exist, so the shelf only offers chips that can match something.
+    public private(set) var availableTypes: [ClipContentType] = []
 
     public private(set) var categories: [ClipCategory] = []
     public private(set) var categoryCounts: [Int64: Int] = [:]
@@ -109,9 +114,12 @@ public final class ShelfViewModel {
         }
     }
 
+    public private(set) var typeCounts: [ClipContentType: Int] = [:]
+
     public func refreshCategories() async {
         categories = (try? await store.categories()) ?? []
         categoryCounts = (try? await store.categoryCounts()) ?? [:]
+        typeCounts = (try? await store.typeCounts()) ?? [:]
     }
 
     private func reload() async {
@@ -120,16 +128,23 @@ public final class ShelfViewModel {
         // anyone walking past sees it.
         await refreshCategories()
 
+        availableTypes = ClipContentType.allCases.filter { (typeCounts[$0] ?? 0) > 0 }
+
         let candidates: [ClipSummary]
         if let categoryId = activeCategoryId {
-            candidates = (try? await store.clips(inCategory: categoryId, limit: itemCount * 4)) ?? []
+            // A category is a join, not a column predicate, so the type chips are applied after
+            // the fetch rather than folded into the query.
+            let all = (try? await store.clips(inCategory: categoryId, limit: itemCount * 6)) ?? []
+            candidates = activeTypes.isEmpty ? all : all.filter { activeTypes.contains($0.contentType) }
         } else if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
             var query = SearchQueryParser.parse(searchText)
             query.favoritesOnly = favouritesOnly
+            query.types.formUnion(activeTypes)
             candidates = (try? await store.search(query, limit: itemCount * 4)) ?? []
-        } else if favouritesOnly {
+        } else if favouritesOnly || !activeTypes.isEmpty {
             var query = SearchQuery()
-            query.favoritesOnly = true
+            query.favoritesOnly = favouritesOnly
+            query.types = activeTypes
             candidates = (try? await store.search(query, limit: itemCount * 4)) ?? []
         } else {
             candidates = (try? await store.recent(limit: itemCount * 3)) ?? []

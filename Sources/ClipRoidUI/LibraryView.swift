@@ -166,6 +166,20 @@ public struct LibraryView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Picker("Sort by", selection: $model.sort) {
+                    ForEach(ClipSort.allCases, id: \.self) { option in
+                        Label(option.displayName, systemImage: option.symbolName).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label("Sort", systemImage: "arrow.up.arrow.down")
+            }
+            .help("Sort clips — currently \(model.sort.displayName.lowercased())")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 Task { await environment.tools.pickColour() }
             } label: {

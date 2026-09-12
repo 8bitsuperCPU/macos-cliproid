@@ -60,6 +60,7 @@ public final class SettingsStore {
         // Tiles by default: the app is pitched as a visual gallery of copied assets (spec §6),
         // and a list of text rows is the opposite of that.
         self.libraryLayoutRaw = defaults.string(forKey: Key.libraryLayout) ?? "grid"
+        self.librarySort = defaults.string(forKey: Key.librarySort) ?? "automatic"
         self.storedTileSize = Self.clampTileSize(
             defaults.object(forKey: Key.tileSize) as? Double ?? 150)
     }
@@ -94,6 +95,7 @@ public final class SettingsStore {
         static let previewHeightFraction = "shelf.preview.heightFraction"
         static let previewCloseDelay = "shelf.preview.closeDelay"
         static let libraryLayout = "library.layout"
+        static let librarySort = "library.sort"
         static let tileSize = "library.tileSize"
     }
 
@@ -343,6 +345,11 @@ public final class SettingsStore {
     public var libraryLayout: String {
         get { libraryLayoutRaw }
         set { libraryLayoutRaw = newValue }
+    }
+
+    /// The Library's sort order, as a `ClipSort` raw value.
+    public var librarySort: String {
+        didSet { defaults.set(librarySort, forKey: Key.librarySort) }
     }
 
     /// Tile width in the grid. Height follows from it.

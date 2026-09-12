@@ -45,6 +45,14 @@ public final class LibraryViewModel {
     public var searchText: String = "" { didSet { scheduleSearch() } }
     /// Chips are additive with the sidebar section; both narrow the same query.
     public var activeTypes: Set<ClipContentType> = [] { didSet { reloadFromScratch() } }
+    /// Remembered across launches, like the layout and tile size.
+    public var sort: ClipSort = .automatic {
+        didSet {
+            guard sort != oldValue else { return }
+            settings?.librarySort = sort.rawValue
+            reloadFromScratch()
+        }
+    }
 
     public var selection: Set<Int64> = []
     /// The keyboard cursor: the clip the arrow keys are currently on.
@@ -98,6 +106,7 @@ public final class LibraryViewModel {
         if let settings {
             self.layout = LibraryLayout(rawValue: settings.libraryLayout) ?? .grid
             self.tileSize = settings.tileSize
+            self.sort = ClipSort(rawValue: settings.librarySort) ?? .automatic
         }
     }
 
@@ -164,14 +173,25 @@ public final class LibraryViewModel {
                 clips.append(contentsOf: page)
                 return
             }
-            if currentQuery.isEmpty {
-                page = try await store.recent(limit: pageSize, before: clips.last?.copiedAt)
+            // Only newest-first can be paged on a timestamp cursor: "everything older than my
+            // last row" means nothing once rows are ordered by size, type or app. The others are
+            // served as one bounded page, which is no loss — whatever the user sorted for is at
+            // the top of it.
+            if currentQuery.isEmpty, sort.supportsTimestampCursor {
+                page = try await store.recent(
+                    limit: pageSize, before: clips.last?.copiedAt, sort: sort)
+            } else if currentQuery.isEmpty {
+                guard clips.isEmpty else { hasMore = false; return }
+                page = try await store.recent(limit: 500, sort: sort)
+                hasMore = false
+                clips.append(contentsOf: page)
+                return
             } else {
                 // FTS results are ranked, not chronological, so they do not paginate on a
                 // timestamp cursor. Ask for one larger page instead and stop there — a search that
                 // needs more than 500 hits wants a narrower search, not more scrolling.
                 guard clips.isEmpty else { hasMore = false; return }
-                page = try await store.search(currentQuery, limit: 500)
+                page = try await store.search(currentQuery, limit: 500, sort: sort)
             }
             if page.count < pageSize { hasMore = false }
             clips.append(contentsOf: page)
