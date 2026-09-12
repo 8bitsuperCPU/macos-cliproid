@@ -81,7 +81,7 @@ struct ClipRoidApp: App {
         let model = ShelfViewModel(
             store: environment.store, coordinator: environment.paste,
             settings: environment.settings)
-        let panel = ShelfPanel(model: model)
+        let panel = ShelfPanel(model: model, settings: environment.settings)
         shelf = panel
         panel.show()
         Diagnostics.log("Shelf shown at \(model.position.rawValue)")

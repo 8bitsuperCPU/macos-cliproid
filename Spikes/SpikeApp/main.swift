@@ -323,6 +323,29 @@ let spike = Spike()
 
 // S4_TARGETS=com.apple.TextEdit,com.apple.Safari  -> paste into each in turn and exit.
 // Without it, arm the hotkey and wait, which is the S2 firing test.
+// MOUSE_PATH=x1,y1;x2,y2;... — move the pointer through a series of points, posting real events.
+//
+// CGWarpMouseCursorPosition moves the cursor without generating an event, so anything listening
+// via a global monitor would never notice. Posting a .mouseMoved event is what actually exercises
+// the shelf's auto-hide reveal.
+if let path = ProcessInfo.processInfo.environment["MOUSE_PATH"] {
+    guard let src = CGEventSource(stateID: .combinedSessionState) else { exit(1) }
+    for pair in path.split(separator: ";") {
+        let parts = pair.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2 else { continue }
+        // CG coordinates are top-left origin; NSEvent.mouseLocation is bottom-left. Callers pass
+        // CG coordinates.
+        let point = CGPoint(x: parts[0], y: parts[1])
+        let move = CGEvent(mouseEventSource: src, mouseType: .mouseMoved,
+                           mouseCursorPosition: point, mouseButton: .left)
+        move?.post(tap: .cghidEventTap)
+        log("moved pointer to \(Int(parts[0])),\(Int(parts[1]))")
+        Thread.sleep(forTimeInterval: 0.8)
+    }
+    Thread.sleep(forTimeInterval: 0.8)
+    exit(0)
+}
+
 // M5_TYPE=<bundleId>:<text> — focus an app and type text, for testing inline shortcut expansion.
 if let spec = ProcessInfo.processInfo.environment["M5_TYPE"] {
     let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)

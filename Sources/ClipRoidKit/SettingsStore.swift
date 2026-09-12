@@ -33,6 +33,12 @@ public final class SettingsStore {
         self.inlineShortcutsEnabled = defaults.bool(forKey: Key.inlineShortcuts)
         self.shortcutPrefix = defaults.string(forKey: Key.shortcutPrefix) ?? ";"
         self.shortcutTriggerRaw = defaults.string(forKey: Key.shortcutTrigger) ?? "space"
+        self.storedShelfThickness = Self.clampThickness(
+            defaults.object(forKey: Key.shelfThickness) as? Double ?? 54)
+        self.shelfAutoHide = defaults.bool(forKey: Key.shelfAutoHide)
+        self.shelfBackgroundRaw = defaults.string(forKey: Key.shelfBackground) ?? "material"
+        self.shelfTintHex = defaults.string(forKey: Key.shelfTintHex) ?? "#1C1C1E"
+        self.shelfOpacity = defaults.object(forKey: Key.shelfOpacity) as? Double ?? 0.9
     }
 
     private enum Key {
@@ -50,6 +56,11 @@ public final class SettingsStore {
         static let inlineShortcuts = "shortcuts.enabled"
         static let shortcutPrefix = "shortcuts.prefix"
         static let shortcutTrigger = "shortcuts.trigger"
+        static let shelfThickness = "shelf.thickness"
+        static let shelfAutoHide = "shelf.autoHide"
+        static let shelfBackground = "shelf.background"
+        static let shelfTintHex = "shelf.tintHex"
+        static let shelfOpacity = "shelf.opacity"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -137,10 +148,75 @@ public final class SettingsStore {
         shortcutPrefix.first ?? ";"
     }
 
+    // MARK: - Shelf appearance
+
+    /// Height of a horizontal shelf, or width of a vertical one.
+    ///
+    /// Same explicit-computed-property shape as `shelfItemCount`, and for the same reason: a
+    /// `didSet` that reassigns itself recurses without bound under `@Observable`.
+    @ObservationIgnored private var storedShelfThickness: Double
+    public var shelfThickness: Double {
+        get {
+            access(keyPath: \.shelfThickness)
+            return storedShelfThickness
+        }
+        set {
+            withMutation(keyPath: \.shelfThickness) {
+                storedShelfThickness = Self.clampThickness(newValue)
+                defaults.set(storedShelfThickness, forKey: Key.shelfThickness)
+            }
+        }
+    }
+
+    /// 44pt is about the smallest a clickable tile can be and still be hit reliably; past ~170pt
+    /// the shelf stops being a glanceable strip and starts being a window.
+    public nonisolated static func clampThickness(_ value: Double) -> Double { min(max(value, 44), 170) }
+
+    /// Above this, tiles are tall enough to show a useful preview of the clip rather than just an
+    /// icon. Below it a preview would be a few illegible pixels.
+    ///
+    /// `nonisolated` because layout code needs it outside the main actor.
+    public nonisolated static let previewThreshold: Double = 92
+
+    public var shelfShowsPreviews: Bool { shelfThickness >= Self.previewThreshold }
+
+    public var shelfAutoHide: Bool {
+        didSet { defaults.set(shelfAutoHide, forKey: Key.shelfAutoHide) }
+    }
+
+    private var shelfBackgroundRaw: String {
+        didSet { defaults.set(shelfBackgroundRaw, forKey: Key.shelfBackground) }
+    }
+    public var shelfBackground: ShelfBackground {
+        get { ShelfBackground(rawValue: shelfBackgroundRaw) ?? .material }
+        set { shelfBackgroundRaw = newValue.rawValue }
+    }
+
+    public var shelfTintHex: String {
+        didSet { defaults.set(shelfTintHex, forKey: Key.shelfTintHex) }
+    }
+    public var shelfOpacity: Double {
+        didSet { defaults.set(shelfOpacity, forKey: Key.shelfOpacity) }
+    }
+
     public var retentionPolicy: RetentionPolicy {
         RetentionPolicy(
             maxClipCount: maxClipCount > 0 ? maxClipCount : nil,
             maxAgeDays: maxClipAgeDays > 0 ? maxClipAgeDays : nil)
+    }
+}
+
+public enum ShelfBackground: String, CaseIterable, Sendable {
+    /// The system blur, which adapts to light and dark and to whatever is behind it.
+    case material
+    /// A flat colour the user picks.
+    case custom
+
+    public var displayName: String {
+        switch self {
+        case .material: "System blur"
+        case .custom: "Custom colour"
+        }
     }
 }
 

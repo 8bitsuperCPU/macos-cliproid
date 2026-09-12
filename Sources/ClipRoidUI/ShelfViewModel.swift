@@ -13,6 +13,14 @@ public enum ShelfPosition: String, CaseIterable, Sendable, Codable {
 @Observable
 public final class ShelfViewModel {
     public private(set) var clips: [ClipSummary] = []
+
+    /// Called whenever the visible clips change.
+    ///
+    /// The shelf is sized to its contents, and those load asynchronously — so the panel cannot
+    /// size itself once at show() time and be done. Without this the shelf is laid out for zero
+    /// items and stays at its minimum width forever, which is exactly the "it never shrinks"
+    /// symptom, just in the other direction.
+    public var onClipsChanged: (@MainActor () -> Void)?
     public var position: ShelfPosition = .top
     /// Spec §4.19 allows 5–20.
     public var itemCount: Int = 10 {
@@ -63,9 +71,14 @@ public final class ShelfViewModel {
         // anyone walking past sees it.
         let recent = (try? await store.recent(limit: itemCount * 3)) ?? []
         let hideSecrets = settings.hideSecretsFromShelf
-        clips = Array(recent.lazy
+        let updated = Array(recent.lazy
             .filter { !hideSecrets || $0.sensitivity != .secret }
             .prefix(itemCount))
+        let countChanged = updated.count != clips.count
+        clips = updated
+        // Only when the count changes: re-laying out the window on every content change would
+        // make the shelf twitch every time a clip was copied.
+        if countChanged { onClipsChanged?() }
     }
 
     public func thumbnailURL(for summary: ClipSummary) async -> URL? {

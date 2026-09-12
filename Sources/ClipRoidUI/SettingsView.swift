@@ -93,6 +93,56 @@ public struct SettingsView: View {
                     value: $settings.shelfItemCount, in: 5...20)
                 .onChange(of: settings.shelfItemCount) { _, _ in onShelfChange() }
 
+            Toggle("Hide until I move the pointer to the edge", isOn: $settings.shelfAutoHide)
+                .onChange(of: settings.shelfAutoHide) { _, _ in onShelfChange() }
+
+            Section("Size") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Slider(
+                        value: $settings.shelfThickness,
+                        in: 44...170, step: 2
+                    ) {
+                        Text("Size")
+                    } minimumValueLabel: {
+                        Image(systemName: "rectangle.compress.vertical").font(.caption2)
+                    } maximumValueLabel: {
+                        Image(systemName: "rectangle.expand.vertical").font(.caption2)
+                    }
+                    .onChange(of: settings.shelfThickness) { _, _ in onShelfChange() }
+
+                    Text(settings.shelfShowsPreviews
+                         ? "\(Int(settings.shelfThickness))pt — large enough to preview each clip."
+                         : "\(Int(settings.shelfThickness))pt — compact. Hover an item to preview it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Background") {
+                Picker("Style", selection: $settings.shelfBackground) {
+                    ForEach(ShelfBackground.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .onChange(of: settings.shelfBackground) { _, _ in onShelfChange() }
+
+                if settings.shelfBackground == .custom {
+                    ColorPicker("Colour", selection: Binding(
+                        get: { Color(hex: settings.shelfTintHex) ?? .black },
+                        set: { settings.shelfTintHex = $0.hexString; onShelfChange() }
+                    ), supportsOpacity: false)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Slider(value: $settings.shelfOpacity, in: 0.2...1.0) {
+                            Text("Opacity")
+                        }
+                        .onChange(of: settings.shelfOpacity) { _, _ in onShelfChange() }
+                        Text("\(Int(settings.shelfOpacity * 100))%")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section {
                 Text("The shelf sits just below the menu bar. It stays out of the way and never takes keyboard focus — click an item to paste it, or drag it into any app.")
                     .font(.caption)
