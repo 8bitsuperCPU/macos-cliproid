@@ -67,8 +67,10 @@ struct AboutView: View {
                  "A shelf at the screen edge collapses to a slim bar until you point at it.")
             item("folder", "Organises itself",
                  "Collections, tags and rules that file clips automatically — everything from Figma into Design Assets, say.")
-            item("text.cursor", "Expands shortcuts",
-                 "Assign ;sig to a clip and type it anywhere. Off by default.")
+            if FeatureFlags.inlineShortcuts {
+                item("text.cursor", "Expands shortcuts",
+                     "Assign ;sig to a clip and type it anywhere. Off by default.")
+            }
         }
     }
 
@@ -106,8 +108,8 @@ struct AboutView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // Stated here as well as in the Shortcuts pane: someone reading About to decide whether
-            // to trust the app should not have to go hunting for this.
+            // Someone reading About to decide whether to trust the app should not have to go
+            // hunting for this.
             Label {
                 Text(PasteDeliverer.isAccessibilityGranted
                      ? "Accessibility is granted, so ClipDroid can paste for you."

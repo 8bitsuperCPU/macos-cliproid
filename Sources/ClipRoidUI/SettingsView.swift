@@ -30,7 +30,11 @@ public struct SettingsView: View {
             general.tabItem { Label("General", systemImage: "gearshape") }
             shelf.tabItem { Label("Shelf", systemImage: "rectangle.topthird.inset.filled") }
             RulesView(model: rulesModel).tabItem { Label("Rules", systemImage: "line.3.horizontal.decrease.circle") }
-            shortcuts.tabItem { Label("Shortcuts", systemImage: "text.cursor") }
+            // Built, tested and switched off — see FeatureFlags.inlineShortcuts. The pane below
+            // is left intact rather than deleted so turning the feature back on is one flag.
+            if FeatureFlags.inlineShortcuts {
+                shortcuts.tabItem { Label("Shortcuts", systemImage: "text.cursor") }
+            }
             privacy.tabItem { Label("Privacy", systemImage: "hand.raised") }
             AboutView(settings: settings).tabItem { Label("About", systemImage: "info.circle") }
         }

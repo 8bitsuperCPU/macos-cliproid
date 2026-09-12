@@ -34,7 +34,7 @@ public final class SettingsStore {
         self.ignoredBundleIds = defaults.stringArray(forKey: Key.ignoredApps) ?? []
         // Off by default, deliberately. Enabling it creates a keystroke tap, and that has to be a
         // decision the user makes rather than one they discover.
-        self.inlineShortcutsEnabled = defaults.bool(forKey: Key.inlineShortcuts)
+        self.storedInlineShortcutsEnabled = defaults.bool(forKey: Key.inlineShortcuts)
         self.shortcutPrefix = defaults.string(forKey: Key.shortcutPrefix) ?? ";"
         self.shortcutTriggerRaw = defaults.string(forKey: Key.shortcutTrigger) ?? "space"
         self.storedShelfThickness = Self.clampThickness(
@@ -170,8 +170,25 @@ public final class SettingsStore {
         didSet { defaults.set(ignoredBundleIds, forKey: Key.ignoredApps) }
     }
 
+    /// Reads false while `FeatureFlags.inlineShortcuts` is off, whatever is stored.
+    ///
+    /// Gating here rather than only in the Settings pane is deliberate: `AppEnvironment` starts
+    /// the keystroke tap from this value, so hiding the pane alone would leave the tap running
+    /// for anyone who had already switched it on — with the switch now invisible. The stored
+    /// preference is written and kept either way, so turning the flag back on restores each
+    /// user's own choice rather than resetting it.
+    @ObservationIgnored private var storedInlineShortcutsEnabled: Bool
     public var inlineShortcutsEnabled: Bool {
-        didSet { defaults.set(inlineShortcutsEnabled, forKey: Key.inlineShortcuts) }
+        get {
+            access(keyPath: \.inlineShortcutsEnabled)
+            return FeatureFlags.inlineShortcuts && storedInlineShortcutsEnabled
+        }
+        set {
+            withMutation(keyPath: \.inlineShortcutsEnabled) {
+                storedInlineShortcutsEnabled = newValue
+                defaults.set(newValue, forKey: Key.inlineShortcuts)
+            }
+        }
     }
     public var shortcutPrefix: String {
         didSet { defaults.set(shortcutPrefix, forKey: Key.shortcutPrefix) }

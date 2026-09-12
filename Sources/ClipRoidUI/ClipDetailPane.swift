@@ -298,8 +298,16 @@ struct ClipDetailPane: View {
     }
 
     /// Inline shortcut assignment (spec §4.5).
+    ///
+    /// Hidden with the feature — see FeatureFlags.inlineShortcuts. Offering to save a shortcut
+    /// that cannot expand would be a control that does nothing.
     @ViewBuilder
     private var shortcutSection: some View {
+        if FeatureFlags.inlineShortcuts { shortcutField }
+    }
+
+    @ViewBuilder
+    private var shortcutField: some View {
         if clip.contentType.isEditableText {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Inline shortcut").font(.caption).foregroundStyle(.secondary)

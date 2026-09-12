@@ -12,6 +12,29 @@ struct SettingsStoreTests {
         UserDefaults(suiteName: "ClipRoidSettingsTests-\(UUID().uuidString)")!
     }
 
+    /// The flag has to make the feature unreachable, not merely invisible. AppEnvironment starts
+    /// the keystroke tap from `inlineShortcutsEnabled`, so a user who had already switched
+    /// shortcuts on would otherwise keep the tap running with the Settings pane now hidden — the
+    /// worst of both: a keystroke observer they can neither see nor turn off.
+    @Test("While the feature flag is off, inline shortcuts cannot be enabled")
+    func inlineShortcutsStayOffBehindTheFlag() {
+        let defaults = scratchDefaults()
+        // Somebody who had turned the feature on before it was withdrawn.
+        defaults.set(true, forKey: "shortcuts.enabled")
+        let settings = SettingsStore(defaults: defaults)
+
+        if FeatureFlags.inlineShortcuts {
+            #expect(settings.inlineShortcutsEnabled, "flag is on, so the stored choice applies")
+        } else {
+            #expect(!settings.inlineShortcutsEnabled)
+            settings.inlineShortcutsEnabled = true
+            #expect(!settings.inlineShortcutsEnabled, "not even an explicit set can turn it on")
+            // The preference itself survives, so flipping the flag back restores the user's
+            // choice rather than silently resetting everyone to off.
+            #expect(defaults.bool(forKey: "shortcuts.enabled"))
+        }
+    }
+
     @Test("Defaults are sensible on a fresh install")
     func freshDefaults() {
         let settings = SettingsStore(defaults: scratchDefaults())
