@@ -300,6 +300,16 @@ public final class LibraryViewModel {
         }
     }
 
+    /// Text already on record, without starting recognition.
+    public func existingOCRText(for summary: ClipSummary) async -> String? {
+        try? await store.ocrText(forClip: summary.id)
+    }
+
+    /// Recognises text now and returns it, for the detail panel's "Find text" action.
+    public func recogniseText(in summary: ClipSummary) async -> String? {
+        await enrichment?.recognizeTextNow(clipId: summary.id)
+    }
+
     /// Copies the text Vision recognised inside an image (spec §4.8).
     ///
     /// Falls back to recognising it on demand, because a screenshot taken seconds ago may not have
@@ -314,6 +324,11 @@ public final class LibraryViewModel {
                 return
             }
             await coordinator.writeOnly(.text(text), originClipUUID: summary.uuid)
+            // The row's summary now carries text it did not before, so republish it: the detail
+            // panel is bound to the summary, not to the database.
+            if let refreshed = try? await store.summary(id: summary.id) {
+                apply(.updated(refreshed))
+            }
         }
     }
 

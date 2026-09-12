@@ -47,6 +47,8 @@ public final class SettingsStore {
         self.shelfTextStyleRaw = defaults.string(forKey: Key.shelfTextStyle) ?? "automatic"
         self.storedPreviewHeightFraction = Self.clampPreviewFraction(
             defaults.object(forKey: Key.previewHeightFraction) as? Double ?? 0.5)
+        self.storedPreviewCloseDelay = Self.clampPreviewCloseDelay(
+            defaults.object(forKey: Key.previewCloseDelay) as? Double ?? 1.5)
     }
 
     private enum Key {
@@ -74,6 +76,7 @@ public final class SettingsStore {
         static let collapsedRainbow = "shelf.collapsed.rainbow"
         static let shelfTextStyle = "shelf.textStyle"
         static let previewHeightFraction = "shelf.preview.heightFraction"
+        static let previewCloseDelay = "shelf.preview.closeDelay"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -256,6 +259,29 @@ public final class SettingsStore {
 
     public nonisolated static func clampPreviewFraction(_ value: Double) -> Double {
         min(max(value, 0.25), 0.85)
+    }
+
+    /// How long the preview lingers after the pointer leaves the card.
+    ///
+    /// Without a delay the preview is unreachable: moving the pointer towards it necessarily
+    /// leaves the card that opened it, so it closes before it can be clicked. The gap has to be
+    /// long enough to cross it.
+    @ObservationIgnored private var storedPreviewCloseDelay: Double
+    public var previewCloseDelay: Double {
+        get {
+            access(keyPath: \.previewCloseDelay)
+            return storedPreviewCloseDelay
+        }
+        set {
+            withMutation(keyPath: \.previewCloseDelay) {
+                storedPreviewCloseDelay = Self.clampPreviewCloseDelay(newValue)
+                defaults.set(storedPreviewCloseDelay, forKey: Key.previewCloseDelay)
+            }
+        }
+    }
+
+    public nonisolated static func clampPreviewCloseDelay(_ value: Double) -> Double {
+        min(max(value, 1.0), 3.0)
     }
 
     /// An animated gradient on the collapsed bar.

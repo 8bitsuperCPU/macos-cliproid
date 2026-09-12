@@ -161,7 +161,14 @@ public struct SettingsView: View {
                     Text("\(Int(settings.previewHeightFraction * 100))% of the screen height")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Hovering a card opens a preview. Click it to keep it open; it then stays until you close it.")
+                VStack(alignment: .leading, spacing: 2) {
+                    Slider(value: $settings.previewCloseDelay, in: 1...3, step: 0.5) {
+                        Text("Stays open for")
+                    }
+                    Text(String(format: "%.1f seconds after the pointer leaves", settings.previewCloseDelay))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Hovering a card opens a preview. Move onto it within that time and click to keep it open — it then stays, with tools, until you close it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

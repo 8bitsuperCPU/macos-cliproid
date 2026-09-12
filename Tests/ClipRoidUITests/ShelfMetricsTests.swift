@@ -212,3 +212,33 @@ struct PreviewSizingTests {
         #expect(SettingsStore(defaults: defaults).previewHeightFraction == 0.75)
     }
 }
+
+@Suite("Preview close delay")
+@MainActor
+struct PreviewCloseDelayTests {
+    /// Without a delay the preview is unreachable: moving towards it necessarily leaves the card
+    /// that opened it, so it closes before it can be clicked.
+    @Test("Delay is clamped to a range that makes the preview reachable", arguments: [
+        (0.0, 1.0), (0.5, 1.0), (1.0, 1.0), (1.5, 1.5), (3.0, 3.0), (10.0, 3.0),
+    ])
+    func clampsDelay(input: Double, expected: Double) {
+        #expect(abs(SettingsStore.clampPreviewCloseDelay(input) - expected) < 0.0001)
+    }
+
+    @Test("Default delay leaves time to cross the gap")
+    func sensibleDefault() {
+        let settings = SettingsStore(
+            defaults: UserDefaults(suiteName: "Delay-\(UUID().uuidString)")!)
+        #expect(settings.previewCloseDelay == 1.5)
+    }
+
+    @Test("Delay persists")
+    func persists() {
+        let defaults = UserDefaults(suiteName: "DelayPersist-\(UUID().uuidString)")!
+        do {
+            let settings = SettingsStore(defaults: defaults)
+            settings.previewCloseDelay = 3.0
+        }
+        #expect(SettingsStore(defaults: defaults).previewCloseDelay == 3.0)
+    }
+}

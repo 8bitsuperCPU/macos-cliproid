@@ -40,14 +40,16 @@ public final class ShelfViewModel {
     private let coordinator: PasteCoordinator
     private let settings: SettingsStore
     private let enrichment: EnrichmentPipeline?
+    private let editor: ExternalEditor?
     private var observation: Task<Void, Never>?
 
     public init(store: ClipStore, coordinator: PasteCoordinator, settings: SettingsStore,
-                enrichment: EnrichmentPipeline? = nil) {
+                enrichment: EnrichmentPipeline? = nil, editor: ExternalEditor? = nil) {
         self.store = store
         self.coordinator = coordinator
         self.settings = settings
         self.enrichment = enrichment
+        self.editor = editor
         self.position = ShelfPosition(rawValue: settings.shelfPosition.rawValue) ?? .top
         self.itemCount = settings.shelfItemCount
     }
@@ -207,6 +209,18 @@ public final class ShelfViewModel {
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             await coordinator.writeOnly(.text(text), originClipUUID: clip.uuid)
         }
+    }
+
+    /// Copies a colour clip in a chosen format (spec §4.13).
+    public func copyColour(_ clip: ClipSummary, as format: ColorFormats) {
+        guard let hex = clip.colorHex,
+              let text = ColorFormats.string(format, fromHex: hex) else { return }
+        Task { await coordinator.writeOnly(.text(text), originClipUUID: clip.uuid) }
+    }
+
+    /// Opens the clip in whichever app the system considers the default for its type.
+    public func editExternally(_ clip: ClipSummary) {
+        Task { await editor?.edit(clip) }
     }
 
     /// Copies without pasting — for the shelf's "copy" affordance.

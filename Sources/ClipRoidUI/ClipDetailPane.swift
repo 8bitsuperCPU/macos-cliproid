@@ -16,6 +16,8 @@ struct ClipDetailPane: View {
     @State private var shortcutDraft: String = ""
     @State private var shortcutError: String?
     @State private var assignedCategories: Set<Int64> = []
+    @State private var recognisedText: String?
+    @State private var isRecognising = false
     @State private var tags: [String] = []
     @State private var newTag = ""
 
@@ -26,6 +28,7 @@ struct ClipDetailPane: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     contentSection
+                    recognisedTextSection
                     shortcutSection
                     categorySection
                     tagSection
@@ -97,6 +100,53 @@ struct ClipDetailPane: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Text Vision found inside the image (spec §4.8).
+    ///
+    /// Shown in the detail panel as well as copied, because "Copy Text from Image" otherwise puts
+    /// something on the clipboard the user cannot see — and if the recognition is poor, they have
+    /// no way to tell before pasting it somewhere.
+    @ViewBuilder
+    private var recognisedTextSection: some View {
+        if clip.contentType == .image || clip.contentType == .screenshot {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Text in image").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if isRecognising {
+                        ProgressView().controlSize(.small)
+                    } else if recognisedText == nil {
+                        Button("Find text") { Task { await recogniseText() } }
+                            .controlSize(.small)
+                    } else {
+                        Button("Copy") { model.copyTextFromImage(clip) }
+                            .controlSize(.small)
+                    }
+                }
+
+                if let recognisedText {
+                    ScrollView {
+                        Text(recognisedText)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 140)
+                    .padding(8)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                } else if !isRecognising {
+                    Text("No text found yet.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func recogniseText() async {
+        isRecognising = true
+        defer { isRecognising = false }
+        recognisedText = await model.recogniseText(in: clip)
     }
 
     /// Inline shortcut assignment (spec §4.5).
@@ -258,6 +308,7 @@ struct ClipDetailPane: View {
         shortcutDraft = clip.shortcut ?? ""
         shortcutError = nil
         assignedCategories = await model.categoryIds(for: clip)
+        recognisedText = await model.existingOCRText(for: clip)
         tags = await model.tags(for: clip)
         newTag = ""
     }

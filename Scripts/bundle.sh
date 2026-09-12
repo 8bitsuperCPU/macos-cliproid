@@ -82,6 +82,14 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$APP_NAME"
 
+# App icon. Regenerate with Scripts/make-icon.sh if it is missing, so a fresh clone builds a
+# complete app rather than one that silently falls back to the generic document icon.
+if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
+    echo "No AppIcon.icns — generating one..."
+    "$ROOT/Scripts/make-icon.sh"
+fi
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
 # Every usage-description string below is commented with what breaks without it, following the
 # style of ~/projects/aug-wifi/App/Info.plist.
 #
@@ -117,6 +125,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>NSApplication</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 
     <!-- Reading a file clip's bytes to build its thumbnail crosses these TCC gates even in an
          unsandboxed app. Without a string the prompt renders blank and looks broken. -->

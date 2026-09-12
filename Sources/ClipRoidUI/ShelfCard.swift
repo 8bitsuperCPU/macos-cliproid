@@ -16,6 +16,9 @@ struct ShelfCard: View {
     /// A clicked preview stays until dismissed, rather than vanishing when the pointer wanders.
     @State private var isPreviewPinned = false
     @State private var hoverTask: Task<Void, Never>?
+    @State private var closeTask: Task<Void, Never>?
+    /// True while the pointer is over the preview itself rather than the card.
+    @State private var isPreviewHovered = false
     @State private var thumbnailURL: URL?
     @State private var preview = ""
 
@@ -37,10 +40,10 @@ struct ShelfCard: View {
             isHovered = inside
             hoverTask?.cancel()
             guard inside else {
-                // A pinned preview survives the pointer leaving; that is the whole point of it.
-                if !isPreviewPinned { showPreview = false }
+                scheduleClose()
                 return
             }
+            closeTask?.cancel()
             // A short delay, so sweeping the pointer across the shelf to reach one card does not
             // fire a popover for every card it passes over.
             hoverTask = Task {
@@ -53,10 +56,20 @@ struct ShelfCard: View {
             ShelfPreview(
                 clip: clip, model: model, settings: settings,
                 isPinned: isPreviewPinned,
-                onPin: { isPreviewPinned = true },
+                onPin: { isPreviewPinned = true; closeTask?.cancel() },
                 onClose: {
                     isPreviewPinned = false
+                    closeTask?.cancel()
                     showPreview = false
+                },
+                onHoverChanged: { inside in
+                    isPreviewHovered = inside
+                    if inside {
+                        // Reaching the preview keeps it open, which is what makes it clickable.
+                        closeTask?.cancel()
+                    } else {
+                        scheduleClose()
+                    }
                 })
         }
         .onChange(of: showPreview) { _, shown in
@@ -110,6 +123,23 @@ struct ShelfCard: View {
     }
 
     private var lineLimit: Int { max(2, Int((size.height - 44) / 15)) }
+
+    /// Closes the preview after a delay, unless the pointer reaches it first.
+    ///
+    /// Moving towards the preview necessarily leaves the card that opened it, so closing
+    /// immediately makes the preview impossible to click — it disappears while you are travelling
+    /// to it. The delay is the width of that gap.
+    private func scheduleClose() {
+        guard !isPreviewPinned else { return }
+        closeTask?.cancel()
+        let delay = settings.previewCloseDelay
+        closeTask = Task {
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            guard !isPreviewPinned, !isPreviewHovered, !isHovered else { return }
+            showPreview = false
+        }
+    }
 
     private var footer: some View {
         HStack(spacing: 5) {
@@ -180,6 +210,16 @@ struct ShelfCardMenu: View {
                 model.copyTextFromImage(clip)
             }
         }
+        if let hex = clip.colorHex {
+            Menu("Copy Colour As") {
+                ForEach(ColorFormats.allCases, id: \.self) { format in
+                    if let text = ColorFormats.string(format, fromHex: hex) {
+                        Button(text) { model.copyColour(clip, as: format) }
+                    }
+                }
+            }
+        }
+        Button("Edit in Default App", systemImage: "pencil") { model.editExternally(clip) }
         Button("Paste", systemImage: "arrow.down.doc") { model.paste(clip) }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { model.delete(clip) }
@@ -198,6 +238,8 @@ struct ShelfPreview: View {
     var isPinned: Bool
     var onPin: () -> Void
     var onClose: () -> Void
+    /// Reports the pointer entering or leaving the preview, so the card can hold it open.
+    var onHoverChanged: (Bool) -> Void = { _ in }
 
     @State private var thumbnailURL: URL?
     @State private var fullText = ""
@@ -223,6 +265,8 @@ struct ShelfPreview: View {
         // A click anywhere pins the preview, so it survives the pointer leaving the card.
         .contentShape(Rectangle())
         .onTapGesture { onPin() }
+        .onHover { onHoverChanged($0) }
+        .contextMenu { ShelfCardMenu(clip: clip, model: model) }
         .task(id: TaskKey(id: clip.id, thumbnail: clip.thumbnailPath)) { await load() }
     }
 
@@ -241,22 +285,74 @@ struct ShelfPreview: View {
             }
 
             Spacer()
-            ClipTimestamp(date: clip.copiedAt, font: .caption)
-                .foregroundStyle(.secondary)
 
-            // Only offered once pinned: an unpinned preview closes itself when the pointer leaves,
-            // so a close button there would be a control for something already happening.
             if isPinned {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 20, height: 20)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
-                }
-                .buttonStyle(.plain)
-                .help("Close")
+                // Tools appear only once pinned. On an unpinned preview they would be unusable —
+                // reaching for one means leaving the card, and the preview is on its way out.
+                toolbar
+            } else {
+                ClipTimestamp(date: clip.copiedAt, font: .caption)
+                    .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// The pinned preview's tools, following the reference screenshots.
+    private var toolbar: some View {
+        HStack(spacing: 4) {
+            tool("doc.on.doc", "Copy") { model.copyOnly(clip) }
+
+            if clip.colorHex != nil {
+                Menu {
+                    ForEach(ColorFormats.allCases, id: \.self) { format in
+                        if let text = ColorFormats.string(format, fromHex: clip.colorHex ?? "") {
+                            Button(text) { model.copyColour(clip, as: format) }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 18)
+                .help("Copy in another format")
+            }
+
+            if clip.contentType == .image || clip.contentType == .screenshot {
+                tool("text.viewfinder", "Copy text from image") {
+                    model.copyTextFromImage(clip)
+                    Task {
+                        // Reflect the recognised text straight away rather than making the user
+                        // reopen the preview to see it.
+                        try? await Task.sleep(for: .milliseconds(400))
+                        ocrText = await model.existingOCRText(for: clip)
+                    }
+                }
+            }
+
+            tool("pencil", "Edit in default app") { model.editExternally(clip) }
+            tool(clip.isFavorite ? "star.fill" : "star",
+                 clip.isFavorite ? "Remove favourite" : "Favourite") {
+                model.toggleFavourite(clip)
+            }
+            tool("trash", "Delete") {
+                model.delete(clip)
+                onClose()
+            }
+            tool("xmark", "Close", action: onClose)
+        }
+    }
+
+    private func tool(_ symbol: String, _ help: String,
+                      action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 22, height: 22)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private func badge(_ text: String) -> some View {
