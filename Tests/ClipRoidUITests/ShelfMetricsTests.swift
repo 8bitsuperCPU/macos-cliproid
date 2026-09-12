@@ -30,7 +30,30 @@ struct ShelfMetricsTests {
     func cardsHaveAFloor() {
         for thickness in [44.0, 80.0, 108.0, 120.0] {
             let card = ShelfMetrics.cardSize(forThickness: thickness)
-            #expect(card.height >= 64, "thickness \(thickness) produced \(card.height)")
+            #expect(card.height >= 52, "thickness \(thickness) produced \(card.height)")
+        }
+    }
+
+    /// The reported bug: dragging the size slider did nothing. The old chrome estimate was so
+    /// generous that everything up to ~172pt clamped to the same floor, making the whole lower
+    /// half of the slider a dead zone.
+    @Test("Card height changes across the whole slider range")
+    func sliderHasNoDeadZone() {
+        let heights = stride(from: 150.0, through: 420.0, by: 30.0)
+            .map { ShelfMetrics.cardHeight(forThickness: $0) }
+        for (a, b) in zip(heights, heights.dropFirst()) {
+            #expect(b > a, "height did not grow: \(a) then \(b)")
+        }
+    }
+
+    /// Every point of thickness beyond the chrome belongs to the card. Anything unaccounted for
+    /// renders as blank space beneath the row, which is what prompted this.
+    @Test("Chrome plus card accounts for the whole shelf")
+    func noUnusedHeight() {
+        for thickness in [180.0, 240.0, 300.0, 420.0] {
+            let used = ShelfMetrics.chromeHeight + ShelfMetrics.cardHeight(forThickness: thickness)
+            #expect(abs(used - thickness) < 0.001,
+                    "thickness \(thickness) accounted for \(used)")
         }
     }
 
@@ -92,7 +115,7 @@ struct ShelfMetricsTests {
     }
 
     @Test("Thickness is clamped to a usable range", arguments: [
-        (10.0, 180.0), (180.0, 180.0), (240.0, 240.0), (380.0, 380.0), (9_999.0, 380.0),
+        (10.0, 150.0), (150.0, 150.0), (240.0, 240.0), (420.0, 420.0), (9_999.0, 420.0),
     ])
     func clampsThickness(input: Double, expected: Double) {
         #expect(SettingsStore.clampThickness(input) == expected)

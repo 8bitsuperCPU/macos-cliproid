@@ -200,7 +200,7 @@ public final class SettingsStore {
     /// The expanded panel's height. It carries a search row, a chip row, a section header and a
     /// row of cards, so the useful range starts where a card is still legible and stops before
     /// the shelf becomes a window in its own right.
-    public nonisolated static func clampThickness(_ value: Double) -> Double { min(max(value, 180), 380) }
+    public nonisolated static func clampThickness(_ value: Double) -> Double { min(max(value, 150), 420) }
 
     /// Above this, tiles are tall enough to show a useful preview of the clip rather than just an
     /// icon. Below it a preview would be a few illegible pixels.

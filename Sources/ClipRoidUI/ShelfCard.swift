@@ -26,9 +26,12 @@ struct ShelfCard: View {
         VStack(alignment: .leading, spacing: 0) {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // Yields space to the footer rather than competing with it.
+                .layoutPriority(0)
             footer
+                .layoutPriority(1)
         }
-        .padding(10)
+        .padding(8)
         .frame(width: size.width, height: size.height)
         // Opaque and independent of the panel background — see ShelfPalette.
         .background(isHovered ? ShelfPalette.cardHovered : ShelfPalette.card,
@@ -115,13 +118,23 @@ struct ShelfCard: View {
                     .foregroundStyle(ShelfPalette.cardPrimaryText)
             }
         } else if let thumbnailURL {
-            AsyncImage(url: thumbnailURL) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            // The image is an overlay on a flexible, contentless container rather than a view in
+            // its own right.
+            //
+            // `.clipped()` only clips drawing — an aspectRatio(.fill) image still reports its
+            // scaled size to the layout, so it grew past its share of the card and pushed the
+            // footer outside the card's own background. Only the cards holding pictures lost
+            // their timestamps, and only some of those, depending on the picture's shape. Sizing
+            // from `Color.clear` means the container decides and the image simply fills it.
+            Color.clear
+                .overlay {
+                    AsyncImage(url: thumbnailURL) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(Color.white.opacity(0.05))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         } else {
             Text(preview.isEmpty ? clip.displayText : preview)
                 .font(.system(size: 11.5))
@@ -150,6 +163,7 @@ struct ShelfCard: View {
         }
     }
 
+    /// Fixed height, so the content above can never squeeze it out of the card.
     private var footer: some View {
         HStack(spacing: 5) {
             AppIcon(bundleId: clip.sourceAppBundleId, side: 13)
@@ -165,7 +179,8 @@ struct ShelfCard: View {
                     .foregroundStyle(.yellow)
             }
         }
-        .padding(.top, 6)
+        .frame(height: 14)
+        .padding(.top, 5)
     }
 
     /// Appears over the card on hover, as in the reference.

@@ -5,14 +5,30 @@ import ClipRoidKit
 /// Sizing for the shelf, shared between the view and the panel that hosts it — if they disagreed
 /// the shelf would clip its own contents or leave dead space.
 enum ShelfMetrics {
-    static let cardSpacing: CGFloat = 8
-    static let padding: CGFloat = 12
-    /// Search row + chips row + section header.
-    static let chromeHeight: CGFloat = 108
+    static let cardSpacing: CGFloat = 6
+    static let padding: CGFloat = 10
+    static let rowSpacing: CGFloat = 7
+
+    /// What the search row, chip row, section header, their spacings and the panel padding cost.
+    ///
+    /// Measured against the real controls rather than estimated. The previous value overstated it,
+    /// so cards were computed smaller than the space actually available and the difference showed
+    /// up as dead space under them.
+    static let chromeHeight: CGFloat = 10 + 24 + 7 + 24 + 7 + 13 + 7 + 10
+
+    /// The height left for cards once the chrome has taken its share.
+    static func cardHeight(forThickness thickness: CGFloat) -> CGFloat {
+        max(52, thickness - chromeHeight)
+    }
 
     static func cardSize(forThickness thickness: CGFloat) -> CGSize {
-        let height = max(64, thickness - chromeHeight - padding)
-        return CGSize(width: height * 1.45, height: height)
+        cardSize(forHeight: cardHeight(forThickness: thickness))
+    }
+
+    /// Landscape, because a card carries a line or two of text under a preview and a square wastes
+    /// the width that makes it readable.
+    static func cardSize(forHeight height: CGFloat) -> CGSize {
+        CGSize(width: height * 1.5, height: height)
     }
 
     /// Total expanded length along the running axis.
@@ -73,12 +89,19 @@ struct ShelfView: View {
     }
 
     private var expanded: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ShelfMetrics.rowSpacing) {
             searchRow
             chipsRow
-            Text(sectionTitle)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(ShelfPalette.secondaryText(settings))
+            HStack(spacing: 6) {
+                Text(sectionTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShelfPalette.secondaryText(settings))
+                if !model.clips.isEmpty {
+                    Text("\(model.clips.count)")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(ShelfPalette.tertiaryText(settings))
+                }
+            }
             cards
         }
         .padding(ShelfMetrics.padding)
@@ -99,7 +122,7 @@ struct ShelfView: View {
     }
 
     private var searchRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
                 .foregroundStyle(ShelfPalette.secondaryText(settings))
@@ -141,25 +164,38 @@ struct ShelfView: View {
                 iconButton("plus", "New collection") { isAddingCategory = true }
             }
         }
-        .frame(height: 26)
+        .frame(height: 24)
     }
 
+    /// Cards fill whatever height is left, measured rather than predicted.
+    ///
+    /// Sizing them from a constant estimate of the chrome meant any drift — a different system
+    /// font size, a control a point taller than assumed — became blank space beneath the row. The
+    /// estimate is still used to size the panel's width, where being a few points out is invisible.
     private var cards: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: ShelfMetrics.cardSpacing) {
-                if model.clips.isEmpty {
-                    Text(model.searchText.isEmpty ? "No clips yet" : "No matches")
-                        .font(.system(size: 12))
-                        .foregroundStyle(ShelfPalette.tertiaryText(settings))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ForEach(model.clips) { clip in
-                        ShelfCard(clip: clip, model: model, settings: settings,
-                                  size: ShelfMetrics.cardSize(forThickness: thickness),
-                                  previewEdge: popoverEdge)
+        GeometryReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: ShelfMetrics.cardSpacing) {
+                    if model.clips.isEmpty {
+                        Text(model.searchText.isEmpty ? "No clips yet" : "No matches")
+                            .font(.system(size: 12))
+                            .foregroundStyle(ShelfPalette.tertiaryText(settings))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(model.clips) { clip in
+                            ShelfCard(
+                                clip: clip, model: model, settings: settings,
+                                size: ShelfMetrics.cardSize(forHeight: max(proxy.size.height, 40)),
+                                previewEdge: popoverEdge)
+                        }
                     }
                 }
+                .frame(height: proxy.size.height)
             }
+            // A ScrollView applies its own content margins by default, which pushed the row a few
+            // points down and clipped the bottom of every card — the timestamps went missing.
+            .contentMargins(.all, 0, for: .scrollContent)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxHeight: .infinity)
     }
@@ -189,8 +225,8 @@ struct ShelfView: View {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(ShelfPalette.primaryText(settings))
-                .frame(width: 26, height: 26)
-                .background(ShelfPalette.control(settings), in: RoundedRectangle(cornerRadius: 7))
+                .frame(width: 24, height: 24)
+                .background(ShelfPalette.control(settings), in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -202,9 +238,9 @@ struct ShelfView: View {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(isOn ? ShelfPalette.selectedChipText(settings) : ShelfPalette.primaryText(settings))
-                .frame(width: 26, height: 26)
+                .frame(width: 24, height: 24)
                 .background(isOn ? ShelfPalette.selectedChip(settings) : ShelfPalette.control(settings),
-                            in: RoundedRectangle(cornerRadius: 7))
+                            in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .help(help)
