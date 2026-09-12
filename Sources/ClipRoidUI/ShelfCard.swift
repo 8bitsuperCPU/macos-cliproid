@@ -251,6 +251,7 @@ struct ShelfPreview: View {
     var onHoverChanged: (Bool) -> Void = { _ in }
 
     @State private var thumbnailURL: URL?
+    @State private var fullImageURL: URL?
     @State private var fullText = ""
     @State private var ocrText: String?
 
@@ -407,8 +408,10 @@ struct ShelfPreview: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else if let thumbnailURL {
-            imageContent(url: thumbnailURL)
+        } else if thumbnailURL != nil {
+            // The full-resolution file, not the thumbnail — a 256px thumbnail in a window half
+            // the height of the screen is upscaled several times over, which is the blur.
+            ZoomableImage(url: fullImageURL ?? thumbnailURL, imageSize: clip.imageSize)
         } else {
             ScrollView {
                 Text(fullText.isEmpty ? clip.displayText : fullText)
@@ -418,35 +421,6 @@ struct ShelfPreview: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    /// Small images are shown at their natural size and centred; large ones are scaled down to fit.
-    ///
-    /// `.aspectRatio(contentMode: .fit)` alone scales in *both* directions, so a 60×20 favicon
-    /// would be blown up to fill the window — enormous, blurry, and a worse view of the clip than
-    /// the card already gives.
-    @ViewBuilder
-    private func imageContent(url: URL) -> some View {
-        GeometryReader { proxy in
-            AsyncImage(url: url) { image in
-                if shouldScaleDown(in: proxy.size) {
-                    image.resizable().aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    // Natural size, centred.
-                    image
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            } placeholder: {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-    }
-
-    private func shouldScaleDown(in available: CGSize) -> Bool {
-        guard let size = clip.imageSize else { return true }
-        return CGFloat(size.width) > available.width || CGFloat(size.height) > available.height
     }
 
     @ViewBuilder
@@ -470,6 +444,7 @@ struct ShelfPreview: View {
 
     private func load() async {
         thumbnailURL = await model.thumbnailURL(for: clip)
+        fullImageURL = await model.fullImageURL(for: clip)
         fullText = await model.fullText(for: clip)
         ocrText = await model.existingOCRText(for: clip)
     }

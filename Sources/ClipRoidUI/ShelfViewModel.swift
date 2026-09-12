@@ -136,6 +136,11 @@ public final class ShelfViewModel {
         if countChanged { onClipsChanged?() }
     }
 
+    /// The full-resolution image, for previews large enough that a thumbnail would visibly blur.
+    public func fullImageURL(for summary: ClipSummary) async -> URL? {
+        (try? await store.fullImageURL(forClip: summary.id)) ?? nil
+    }
+
     public func thumbnailURL(for summary: ClipSummary) async -> URL? {
         guard let path = summary.thumbnailPath else { return nil }
         return await store.thumbnailURL(relativePath: path)

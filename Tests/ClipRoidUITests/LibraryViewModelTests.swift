@@ -132,3 +132,47 @@ struct LibraryViewModelTests {
         await store.close()
     }
 }
+
+@Suite("Expanded detail")
+@MainActor
+struct ExpandedDetailTests {
+    private func model() -> LibraryViewModel {
+        LibraryViewModel(store: .makeDefault(root: URL(fileURLWithPath: "/dev/null")))
+    }
+
+    private func summary(_ id: Int64) -> ClipSummary {
+        ClipSummary(id: id, uuid: UUID(), contentType: .image, preview: "", copiedAt: Date(),
+                    thumbnailPath: "ab/\(id).thumb.png", imageSize: (1200, 800))
+    }
+
+    @Test("Expanding is off by default")
+    func defaultsToColumn() {
+        #expect(!model().isDetailExpanded)
+    }
+
+    /// Expanded mode shows one clip and hides the list, so deleting that clip would otherwise
+    /// leave an empty pane with no visible way back.
+    @Test("Deleting the expanded clip returns to the list")
+    func deletingExpandedClipRestores() {
+        let m = model()
+        m.apply(.inserted(summary(1)))
+        m.selection = [1]
+        m.isDetailExpanded = true
+
+        m.apply(.deleted([1]))
+        #expect(!m.isDetailExpanded)
+        #expect(m.selection.isEmpty)
+    }
+
+    @Test("Deleting a different clip leaves the expanded view alone")
+    func deletingOtherClipKeepsExpansion() {
+        let m = model()
+        m.apply(.inserted(summary(1)))
+        m.apply(.inserted(summary(2)))
+        m.selection = [1]
+        m.isDetailExpanded = true
+
+        m.apply(.deleted([2]))
+        #expect(m.isDetailExpanded, "the clip being shown is still there")
+    }
+}

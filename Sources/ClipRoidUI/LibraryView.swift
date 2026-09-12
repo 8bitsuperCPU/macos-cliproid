@@ -28,12 +28,18 @@ public struct LibraryView: View {
             LibrarySidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
         } detail: {
-            HSplitView {
-                clipsPane
-                if let selected = model.singleSelection {
-                    ClipDetailPane(clip: selected, model: model, environment: environment)
-                        .frame(minWidth: 260, idealWidth: detailWidth, maxWidth: 640)
-                        .background(DetailWidthReporter { detailWidth = $0 })
+            // Expanded, the detail pane takes the whole pane rather than a column, so a
+            // double-clicked image gets the room it needs.
+            if model.isDetailExpanded, let selected = model.singleSelection {
+                ClipDetailPane(clip: selected, model: model, environment: environment)
+            } else {
+                HSplitView {
+                    clipsPane
+                    if let selected = model.singleSelection {
+                        ClipDetailPane(clip: selected, model: model, environment: environment)
+                            .frame(minWidth: 260, idealWidth: detailWidth, maxWidth: 640)
+                            .background(DetailWidthReporter { detailWidth = $0 })
+                    }
                 }
             }
         }

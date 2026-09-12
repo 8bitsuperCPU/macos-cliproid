@@ -47,6 +47,8 @@ public final class LibraryViewModel {
     public var activeTypes: Set<ClipContentType> = [] { didSet { reloadFromScratch() } }
 
     public var selection: Set<Int64> = []
+    /// When true the detail pane takes the whole window instead of the right-hand column.
+    public var isDetailExpanded = false
     public private(set) var sourceApps: [ClipStore.SourceApp] = []
     public private(set) var categories: [ClipCategory] = []
     public private(set) var categoryCounts: [Int64: Int] = [:]
@@ -221,6 +223,9 @@ public final class LibraryViewModel {
             clips.removeAll { set.contains($0.id) }
             selection.subtract(set)
             totalCount = max(0, totalCount - ids.count)
+            // Expanded mode shows one clip and hides the list. Deleting that clip would leave an
+            // empty pane with no visible way back to anything.
+            if selection.isEmpty { isDetailExpanded = false }
         }
     }
 
@@ -456,6 +461,11 @@ public final class LibraryViewModel {
     public func removeTag(_ name: String, from summary: ClipSummary) async {
         try? await store.removeTag(name, fromClip: summary.id)
         await refreshFacets()
+    }
+
+    /// The full-resolution image, for previews large enough that a thumbnail would visibly blur.
+    public func fullImageURL(for summary: ClipSummary) async -> URL? {
+        (try? await store.fullImageURL(forClip: summary.id)) ?? nil
     }
 
     public func thumbnailURL(for summary: ClipSummary) async -> URL? {

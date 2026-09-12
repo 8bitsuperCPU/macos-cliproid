@@ -20,6 +20,7 @@ struct ClipDetailPane: View {
     @State private var recognisedText: String?
     @State private var isRecognising = false
     @State private var imageData: Data?
+    @State private var fullImageURL: URL?
     @State private var sampledColour: PixelSampler.Sample?
     @State private var tags: [String] = []
     @State private var newTag = ""
@@ -28,16 +29,20 @@ struct ClipDetailPane: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    contentSection
-                    recognisedTextSection
-                    shortcutSection
-                    categorySection
-                    tagSection
-                    metadataSection
+            if model.isDetailExpanded {
+                expandedBody
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        contentSection
+                        recognisedTextSection
+                        shortcutSection
+                        categorySection
+                        tagSection
+                        metadataSection
+                    }
+                    .padding(14)
                 }
-                .padding(14)
             }
             Divider()
             actions
@@ -52,6 +57,17 @@ struct ClipDetailPane: View {
             Spacer()
             if clip.isPinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
             if clip.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+            if fullImageURL != nil {
+                Button {
+                    model.isDetailExpanded.toggle()
+                } label: {
+                    Image(systemName: model.isDetailExpanded
+                          ? "arrow.down.right.and.arrow.up.left"
+                          : "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.borderless)
+                .help(model.isDetailExpanded ? "Show the clip list" : "Fill the window")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -108,6 +124,41 @@ struct ClipDetailPane: View {
         }
     }
 
+    /// Expanded layout: the image occupies the top three-quarters, everything else sits beneath.
+    ///
+    /// A fixed proportion rather than a scroll view, because the point of expanding is to see the
+    /// image — letting the metadata push it off the top would defeat that.
+    private var expandedBody: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                Group {
+                    if let fullImageURL {
+                        ZoomableImage(url: fullImageURL, imageSize: clip.imageSize)
+                            .onTapGesture(count: 2) { model.isDetailExpanded = false }
+                    } else {
+                        contentSection.padding(14)
+                    }
+                }
+                .frame(height: proxy.size.height * 0.75)
+
+                Divider()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let sampledColour { sampledColourRow(sampledColour) }
+                        recognisedTextSection
+                        shortcutSection
+                        categorySection
+                        tagSection
+                        metadataSection
+                    }
+                    .padding(14)
+                }
+                .frame(height: proxy.size.height * 0.25)
+            }
+        }
+    }
+
     /// The image, with click-to-sample.
     ///
     /// The click point is converted from view coordinates into image pixel coordinates, which is
@@ -122,6 +173,10 @@ struct ClipDetailPane: View {
                     // Only when there is something to sample — an eyedropper over an image that
                     // cannot be read would promise something the click does not deliver.
                     .cursor(imageData != nil ? .eyedropper : .arrow)
+                    .onTapGesture(count: 2) {
+                        // Double-click fills the window; double-click again restores the column.
+                        model.isDetailExpanded.toggle()
+                    }
                     .onTapGesture { location in
                         sample(at: location, in: proxy.size)
                     }
@@ -383,6 +438,7 @@ struct ClipDetailPane: View {
         isEditing = false
         isRevealed = false
         thumbnailURL = await model.thumbnailURL(for: clip)
+        fullImageURL = await model.fullImageURL(for: clip)
         fullText = await model.fullText(for: clip)
         draft = fullText
         shortcutDraft = clip.shortcut ?? ""

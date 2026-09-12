@@ -449,6 +449,15 @@ public actor ClipStore {
         await blobs.absoluteURL(relativePath: relativePath)
     }
 
+    /// The full-resolution image for a clip, for previews large enough that a thumbnail would show.
+    ///
+    /// Thumbnails are capped at 256px. Displaying one in a window half the height of the screen
+    /// upscales it several times over, which is exactly the blur.
+    public func fullImageURL(forClip id: Int64) async throws -> URL? {
+        guard let path = try await imageBlobPath(forClip: id) else { return nil }
+        return await blobs.absoluteURL(relativePath: path)
+    }
+
     /// Text Vision recognised inside an image (spec §4.8).
     ///
     /// Populated asynchronously by the enrichment pipeline, so a very recently captured screenshot
