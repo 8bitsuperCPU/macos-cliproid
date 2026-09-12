@@ -147,6 +147,12 @@ public final class ShelfPanel: NSObject {
         let mouse = NSEvent.mouseLocation
 
         if isExpanded {
+            // An open preview keeps the shelf up. Collapsing would destroy the card the preview is
+            // anchored to and take the preview with it, regardless of its own close delay.
+            if model.isPreviewOpen {
+                awayDwell = 0
+                return
+            }
             let generous = panel.frame.insetBy(dx: -24, dy: -24)
             if generous.contains(mouse) || isPointerAtRevealEdge(mouse) {
                 awayDwell = 0

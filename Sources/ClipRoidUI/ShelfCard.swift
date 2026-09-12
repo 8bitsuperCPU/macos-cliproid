@@ -80,6 +80,8 @@ struct ShelfCard: View {
                 })
         }
         .onChange(of: showPreview) { _, shown in
+            // Holds the shelf open for as long as the preview needs it.
+            model.isPreviewOpen = shown
             // Dismissing by clicking outside must clear the pin too, or the next hover reopens a
             // preview that is still marked pinned and can never be closed by leaving.
             if !shown { isPreviewPinned = false }

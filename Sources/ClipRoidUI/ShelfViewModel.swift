@@ -22,6 +22,14 @@ public final class ShelfViewModel {
     /// symptom, just in the other direction.
     public var onClipsChanged: (@MainActor () -> Void)?
 
+    /// True while a hover preview is on screen.
+    ///
+    /// The shelf must not collapse while one is open. A preview is an NSPopover anchored to a
+    /// card, so collapsing tears down the hosting view, the card goes with it, and the popover is
+    /// destroyed — no matter what the close delay is set to. That is why a 10-second preview
+    /// vanished in about a second: the collapse timer, not the preview timer, was ending it.
+    public var isPreviewOpen = false
+
     /// Free-text filter for the shelf's own search field.
     public var searchText: String = "" { didSet { scheduleReload() } }
     /// nil means "All".
