@@ -234,6 +234,16 @@ struct ClipRoidApp: App {
                 isShelfShown.toggle()
             }
 
+            // Also in Settings, but worth reaching in one click: whether a chosen clip pastes
+            // itself or just lands on the clipboard is a decision people change per task, not
+            // once per install.
+            Toggle("Paste Automatically", isOn: Binding(
+                get: { environment.settings.autoPasteEnabled },
+                set: { newValue in
+                    environment.settings.autoPasteEnabled = newValue
+                    environment.applyPasteSettings()
+                }))
+
             Button("Pick a Colour…") {
                 Task { await environment.tools.pickColour() }
             }

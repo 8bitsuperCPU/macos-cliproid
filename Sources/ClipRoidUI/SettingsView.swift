@@ -52,7 +52,9 @@ public struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section {
+            // A titled section, not an anonymous one. Unlabelled it read as a continuation of
+            // the block above, and the one control people go looking for was the hardest to find.
+            Section("Pasting") {
                 Toggle("Paste automatically after choosing a clip", isOn: $settings.autoPasteEnabled)
                     .onChange(of: settings.autoPasteEnabled) { _, _ in onPasteChange() }
                 if !settings.autoPasteEnabled {

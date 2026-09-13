@@ -12,6 +12,13 @@ public enum ShelfPosition: String, CaseIterable, Sendable, Codable {
 @MainActor
 @Observable
 public final class ShelfViewModel {
+    /// Suppresses the property observers while the initialiser restores saved filters.
+    ///
+    /// Each restored assignment would otherwise write the value straight back to settings and
+    /// kick off a reload — against a store that has not been opened yet, since the environment
+    /// opens it after the view models are built.
+    private var isRestoring = true
+
     public private(set) var clips: [ClipSummary] = []
 
     /// Called whenever the visible clips change.
@@ -60,11 +67,29 @@ public final class ShelfViewModel {
     /// Free-text filter for the shelf's own search field.
     public var searchText: String = "" { didSet { scheduleReload() } }
     /// nil means "All".
-    public var activeCategoryId: Int64? { didSet { Task { await reload() } } }
-    public var favouritesOnly = false { didSet { Task { await reload() } } }
+    public var activeCategoryId: Int64? {
+        didSet {
+            guard !isRestoring, activeCategoryId != oldValue else { return }
+            settings.shelfCategoryId = activeCategoryId ?? -1
+            Task { await reload() }
+        }
+    }
+    public var favouritesOnly = false {
+        didSet {
+            guard !isRestoring, favouritesOnly != oldValue else { return }
+            settings.shelfFavouritesOnly = favouritesOnly
+            Task { await reload() }
+        }
+    }
     /// Content-type chips, matching the Library's. Additive with the category and favourites
     /// filters — all three narrow the same query rather than replacing one another.
-    public var activeTypes: Set<ClipContentType> = [] { didSet { Task { await reload() } } }
+    public var activeTypes: Set<ClipContentType> = [] {
+        didSet {
+            guard !isRestoring, activeTypes != oldValue else { return }
+            settings.shelfTypes = activeTypes.map(\.rawValue).sorted()
+            Task { await reload() }
+        }
+    }
     /// Which types actually exist, so the shelf only offers chips that can match something.
     public private(set) var availableTypes: [ClipContentType] = []
 
@@ -103,6 +128,12 @@ public final class ShelfViewModel {
         self.editor = editor
         self.position = ShelfPosition(rawValue: settings.shelfPosition.rawValue) ?? .top
         self.itemCount = settings.shelfItemCount
+        // Restored before the first reload, so the shelf opens already filtered rather than
+        // showing everything and then visibly narrowing.
+        self.activeTypes = Set(settings.shelfTypes.compactMap(ClipContentType.init(rawValue:)))
+        self.favouritesOnly = settings.shelfFavouritesOnly
+        self.activeCategoryId = settings.shelfCategoryId >= 0 ? settings.shelfCategoryId : nil
+        isRestoring = false
     }
 
     /// Re-reads the preferences the Settings window may have changed.

@@ -61,6 +61,13 @@ public final class SettingsStore {
         // and a list of text rows is the opposite of that.
         self.libraryLayoutRaw = defaults.string(forKey: Key.libraryLayout) ?? "grid"
         self.librarySort = defaults.string(forKey: Key.librarySort) ?? "automatic"
+        self.librarySection = defaults.string(forKey: Key.librarySection) ?? "all"
+        self.libraryTypes = (defaults.array(forKey: Key.libraryTypes) as? [Int]) ?? []
+        self.shelfTypes = (defaults.array(forKey: Key.shelfTypes) as? [Int]) ?? []
+        // -1 rather than absent-means-nil: a category the user has since deleted must read back
+        // as "no category", and `object(forKey:)` cannot tell 0 from missing.
+        self.shelfCategoryId = (defaults.object(forKey: Key.shelfCategory) as? Int).map(Int64.init) ?? -1
+        self.shelfFavouritesOnly = defaults.bool(forKey: Key.shelfFavouritesOnly)
         self.storedTileSize = Self.clampTileSize(
             defaults.object(forKey: Key.tileSize) as? Double ?? 150)
     }
@@ -97,6 +104,11 @@ public final class SettingsStore {
         static let libraryLayout = "library.layout"
         static let librarySort = "library.sort"
         static let tileSize = "library.tileSize"
+        static let librarySection = "library.section"
+        static let libraryTypes = "library.types"
+        static let shelfTypes = "shelf.types"
+        static let shelfCategory = "shelf.category"
+        static let shelfFavouritesOnly = "shelf.favouritesOnly"
     }
 
     /// Stored as its raw string so an unknown value from a future version degrades to the default
@@ -350,6 +362,33 @@ public final class SettingsStore {
     /// The Library's sort order, as a `ClipSort` raw value.
     public var librarySort: String {
         didSet { defaults.set(librarySort, forKey: Key.librarySort) }
+    }
+
+    // MARK: - Restored filter state
+    //
+    // Which filters were applied is as much a part of "how I left the app" as the window size.
+    // Reopening to an unfiltered list when the user left it showing only images is the app
+    // forgetting something it was told. Search text is deliberately *not* restored: a stale query
+    // reopens onto a near-empty list that looks like lost data.
+
+    /// The sidebar selection, as `LibrarySection.storageKey`.
+    public var librarySection: String {
+        didSet { defaults.set(librarySection, forKey: Key.librarySection) }
+    }
+    /// Library type chips, as `ClipContentType` raw values.
+    public var libraryTypes: [Int] {
+        didSet { defaults.set(libraryTypes, forKey: Key.libraryTypes) }
+    }
+    /// Shelf type chips, as `ClipContentType` raw values.
+    public var shelfTypes: [Int] {
+        didSet { defaults.set(shelfTypes, forKey: Key.shelfTypes) }
+    }
+    /// The shelf's selected collection; -1 means none.
+    public var shelfCategoryId: Int64 {
+        didSet { defaults.set(Int(shelfCategoryId), forKey: Key.shelfCategory) }
+    }
+    public var shelfFavouritesOnly: Bool {
+        didSet { defaults.set(shelfFavouritesOnly, forKey: Key.shelfFavouritesOnly) }
     }
 
     /// Tile width in the grid. Height follows from it.

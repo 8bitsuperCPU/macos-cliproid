@@ -27,9 +27,59 @@ public enum LibrarySection: Hashable, Sendable {
     case tag(String)
 }
 
+extension LibrarySection {
+    /// A flat string, so the sidebar selection survives a restart.
+    ///
+    /// Hand-rolled rather than `Codable` because the associated values are already strings and
+    /// integers: one line to write, one to read, and nothing to migrate when a case is added.
+    /// The separator is ":" and app bundle ids and tag names may contain it, so the payload is
+    /// everything after the *first* one.
+    var storageKey: String {
+        switch self {
+        case .all: "all"
+        case .pinned: "pinned"
+        case .favorites: "favorites"
+        case .type(let t): "type:\(t.rawValue)"
+        case .app(let id): "app:\(id)"
+        case .category(let id): "category:\(id)"
+        case .tag(let name): "tag:\(name)"
+        }
+    }
+
+    init?(storageKey: String) {
+        let head = storageKey.prefix { $0 != ":" }
+        let tail = String(storageKey.dropFirst(head.count + 1))
+        switch head {
+        case "all": self = .all
+        case "pinned": self = .pinned
+        case "favorites": self = .favorites
+        case "type":
+            guard let raw = Int(tail), let t = ClipContentType(rawValue: raw) else { return nil }
+            self = .type(t)
+        case "app":
+            guard !tail.isEmpty else { return nil }
+            self = .app(tail)
+        case "category":
+            guard let id = Int64(tail) else { return nil }
+            self = .category(id)
+        case "tag":
+            guard !tail.isEmpty else { return nil }
+            self = .tag(tail)
+        default: return nil
+        }
+    }
+}
+
 @MainActor
 @Observable
 public final class LibraryViewModel {
+    /// Suppresses the property observers while the initialiser restores saved filters.
+    ///
+    /// Each restored assignment would otherwise write the value straight back to settings and
+    /// kick off a reload — against a store that has not been opened yet, since the environment
+    /// opens it after the view models are built.
+    private var isRestoring = true
+
     public private(set) var clips: [ClipSummary] = []
     public private(set) var isLoadingPage = false
     public private(set) var hasMore = true
@@ -41,14 +91,26 @@ public final class LibraryViewModel {
     public var tileSize: Double = 150 {
         didSet { settings?.tileSize = tileSize }
     }
-    public var section: LibrarySection = .all { didSet { reloadFromScratch() } }
+    public var section: LibrarySection = .all {
+        didSet {
+            guard !isRestoring, section != oldValue else { return }
+            settings?.librarySection = section.storageKey
+            reloadFromScratch()
+        }
+    }
     public var searchText: String = "" { didSet { scheduleSearch() } }
     /// Chips are additive with the sidebar section; both narrow the same query.
-    public var activeTypes: Set<ClipContentType> = [] { didSet { reloadFromScratch() } }
+    public var activeTypes: Set<ClipContentType> = [] {
+        didSet {
+            guard !isRestoring, activeTypes != oldValue else { return }
+            settings?.libraryTypes = activeTypes.map(\.rawValue).sorted()
+            reloadFromScratch()
+        }
+    }
     /// Remembered across launches, like the layout and tile size.
     public var sort: ClipSort = .automatic {
         didSet {
-            guard sort != oldValue else { return }
+            guard !isRestoring, sort != oldValue else { return }
             settings?.librarySort = sort.rawValue
             reloadFromScratch()
         }
@@ -107,7 +169,12 @@ public final class LibraryViewModel {
             self.layout = LibraryLayout(rawValue: settings.libraryLayout) ?? .grid
             self.tileSize = settings.tileSize
             self.sort = ClipSort(rawValue: settings.librarySort) ?? .automatic
+            // Restored before `start()`, so the first load already carries the filters rather
+            // than fetching an unfiltered page and replacing it a moment later.
+            self.section = LibrarySection(storageKey: settings.librarySection) ?? .all
+            self.activeTypes = Set(settings.libraryTypes.compactMap(ClipContentType.init(rawValue:)))
         }
+        isRestoring = false
     }
 
     public var selectedClips: [ClipSummary] {
