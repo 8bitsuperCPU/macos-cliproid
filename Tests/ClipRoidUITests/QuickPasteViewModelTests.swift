@@ -178,6 +178,79 @@ struct ShelfViewModelTests {
         await store.close()
     }
 
+    /// Moving between shelf cards showed the new clip and then reverted to the previous one —
+    /// but only when moving left. Each card owned its own `showPreview` flag, and the close delay
+    /// left the card just vacated still presented while the card arrived at presented too. With
+    /// two popovers presented at once the later one in the view tree wins, and cards run
+    /// newest-first left to right, so moving right happened to land on the winner.
+    @Test("Only one clip's preview can be open at a time")
+    func previewHasOneOwner() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        try await store.insert(clip("left"))
+        try await store.insert(clip("right"))
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.clips.count == 2)
+
+        let newer = model.clips[0].id
+        let older = model.clips[1].id
+
+        model.openPreview(for: older)
+        #expect(model.previewClipId == older)
+
+        // Moving to the other card takes ownership in one assignment; there is no moment where
+        // both are open for the view tree to arbitrate.
+        model.openPreview(for: newer)
+        #expect(model.previewClipId == newer)
+        await store.close()
+    }
+
+    /// The half of the fix that matters most: leaving a card schedules a close that fires seconds
+    /// later, by which time another card may own the preview. An unconditional close would tear
+    /// down the preview the user is now looking at — the same defect in slow motion.
+    @Test("A stale close does not dismiss another card's preview")
+    func staleCloseIsIgnored() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        try await store.insert(clip("left"))
+        try await store.insert(clip("right"))
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+
+        let newer = model.clips[0].id
+        let older = model.clips[1].id
+
+        model.openPreview(for: older)
+        model.openPreview(for: newer)
+        // The close scheduled when the pointer left the older card finally fires.
+        model.closePreview(ifOwnedBy: older)
+        #expect(model.previewClipId == newer, "the preview in front of the user survives")
+
+        model.closePreview(ifOwnedBy: newer)
+        #expect(model.previewClipId == nil, "its own close still works")
+        await store.close()
+    }
+
+    /// The shelf must not collapse out from under an open preview — collapsing tears down the
+    /// hosting view, and the popover is anchored to a card inside it.
+    @Test("The shelf counts as busy exactly while a preview is open")
+    func previewHoldsTheShelfOpen() async throws {
+        let scratch = Scratch()
+        let (model, store) = try await make(scratch)
+        try await store.insert(clip("one"))
+        model.start()
+        try await Task.sleep(for: .milliseconds(300))
+        let id = model.clips[0].id
+
+        #expect(!model.isPreviewOpen)
+        model.openPreview(for: id)
+        #expect(model.isPreviewOpen)
+        model.closePreview(ifOwnedBy: id)
+        #expect(!model.isPreviewOpen)
+        await store.close()
+    }
+
     /// The shelf's type chips narrow it the same way the Library's do.
     @Test("Shelf type chips filter the strip")
     func shelfTypeChips() async throws {

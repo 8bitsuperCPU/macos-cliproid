@@ -28,7 +28,34 @@ public final class ShelfViewModel {
     /// card, so collapsing tears down the hosting view, the card goes with it, and the popover is
     /// destroyed — no matter what the close delay is set to. That is why a 10-second preview
     /// vanished in about a second: the collapse timer, not the preview timer, was ending it.
-    public var isPreviewOpen = false
+    public var isPreviewOpen: Bool { previewClipId != nil }
+
+    /// The one clip whose hover preview is open, or nil.
+    ///
+    /// Held here rather than as a `showPreview` flag on each card. Per-card flags meant the card
+    /// you left stayed presented for the whole close delay while the card you arrived at presented
+    /// too — two popovers presented at once, of which the later in the view tree wins. Cards run
+    /// newest-first, left to right, so moving right happened to land on the winner and moving left
+    /// reverted to the card just left. One owner makes that race impossible rather than merely
+    /// unlikely.
+    public var previewClipId: Int64?
+
+    /// Opens `id`'s preview, taking ownership from whichever card held it.
+    ///
+    /// One assignment both presents this preview and dismisses the previous one, so there is no
+    /// window in which two are presented and the view tree decides which wins.
+    public func openPreview(for id: Int64) {
+        previewClipId = id
+    }
+
+    /// Closes the preview only if `id` still owns it.
+    ///
+    /// The ownership check is the point. Leaving a card schedules a close that fires seconds
+    /// later, by which time the pointer may have moved on and another card may own the preview —
+    /// an unconditional close would then tear down the preview the user is actually looking at.
+    public func closePreview(ifOwnedBy id: Int64) {
+        if previewClipId == id { previewClipId = nil }
+    }
 
     /// Free-text filter for the shelf's own search field.
     public var searchText: String = "" { didSet { scheduleReload() } }

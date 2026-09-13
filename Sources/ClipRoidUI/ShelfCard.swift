@@ -12,7 +12,6 @@ struct ShelfCard: View {
     var previewEdge: Edge = .bottom
 
     @State private var isHovered = false
-    @State private var showPreview = false
     /// A clicked preview stays until dismissed, rather than vanishing when the pointer wanders.
     @State private var isPreviewPinned = false
     @State private var hoverTask: Task<Void, Never>?
@@ -52,10 +51,12 @@ struct ShelfCard: View {
             hoverTask = Task {
                 try? await Task.sleep(for: .milliseconds(450))
                 guard !Task.isCancelled else { return }
-                showPreview = true
+                // Takes ownership from whichever card had it, so the previous preview is dismissed
+                // by the same assignment that presents this one — never both at once.
+                model.openPreview(for: clip.id)
             }
         }
-        .popover(isPresented: $showPreview, arrowEdge: previewEdge) {
+        .popover(isPresented: previewBinding, arrowEdge: previewEdge) {
             ShelfPreview(
                 clip: clip, model: model, settings: settings,
                 isPinned: isPreviewPinned,
@@ -63,14 +64,14 @@ struct ShelfCard: View {
                     // Hand it to a window we own, then close the popover. A popover is transient
                     // by construction and cannot be made to persist.
                     closeTask?.cancel()
-                    showPreview = false
+                    dismissIfMine()
                     PreviewWindowController.shared.show(
                         clip: clip, model: model, settings: settings)
                 },
                 onClose: {
                     isPreviewPinned = false
                     closeTask?.cancel()
-                    showPreview = false
+                    dismissIfMine()
                 },
                 onHoverChanged: { inside in
                     isPreviewHovered = inside
@@ -82,12 +83,11 @@ struct ShelfCard: View {
                     }
                 })
         }
-        .onChange(of: showPreview) { _, shown in
-            // Holds the shelf open for as long as the preview needs it.
-            model.isPreviewOpen = shown
-            // Dismissing by clicking outside must clear the pin too, or the next hover reopens a
-            // preview that is still marked pinned and can never be closed by leaving.
-            if !shown { isPreviewPinned = false }
+        .onChange(of: model.previewClipId) { _, open in
+            // Losing the preview — to another card or to an outside click — must clear the pin,
+            // or the next hover reopens a preview still marked pinned that leaving can never
+            // close.
+            if open != clip.id { isPreviewPinned = false }
         }
         .onTapGesture { model.paste(clip) }
         .draggable(clip.displayText)
@@ -151,6 +151,28 @@ struct ShelfCard: View {
     /// Moving towards the preview necessarily leaves the card that opened it, so closing
     /// immediately makes the preview impossible to click — it disappears while you are travelling
     /// to it. The delay is the width of that gap.
+    /// Presented only while this card owns the preview. `model.isPreviewOpen` follows from the
+    /// same value, so the shelf cannot collapse out from under an open preview.
+    private var previewBinding: Binding<Bool> {
+        Binding(
+            get: { model.previewClipId == clip.id },
+            set: { shown in
+                if shown {
+                    model.openPreview(for: clip.id)
+                } else {
+                    model.closePreview(ifOwnedBy: clip.id)
+                }
+            })
+    }
+
+    /// Clears the preview only if this card still owns it.
+    ///
+    /// Without the check, a delayed close belonging to the card the pointer left would tear down
+    /// the preview the pointer has since arrived at — the same bug in slow motion.
+    private func dismissIfMine() {
+        model.closePreview(ifOwnedBy: clip.id)
+    }
+
     private func scheduleClose() {
         guard !isPreviewPinned else { return }
         closeTask?.cancel()
@@ -159,7 +181,7 @@ struct ShelfCard: View {
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             guard !isPreviewPinned, !isPreviewHovered, !isHovered else { return }
-            showPreview = false
+            dismissIfMine()
         }
     }
 
