@@ -10,6 +10,14 @@ fetching a page title when you copy a link, and that is opt-in and off by defaul
 > **Status:** feature-complete through milestone M5; M6 (tools, intelligence, ship) in progress.
 > Not yet notarized — see [Distribution](#distribution).
 
+![The Library window: a grid of captured clips with a faceted sidebar and type chips](Docs/images/library.png)
+
+The shelf, expanded. It collapses to a slim bar at the screen edge until you point at it.
+
+![The shelf: a horizontal strip of clip cards above a search field and filter chips](Docs/images/shelf.png)
+
+<sub>Screenshots use a synthetic clip history, not real clipboard contents.</sub>
+
 ---
 
 ## What it does
