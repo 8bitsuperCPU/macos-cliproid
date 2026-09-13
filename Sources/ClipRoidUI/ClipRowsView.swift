@@ -132,7 +132,6 @@ struct ClipThumbnail: View {
                 } placeholder: {
                     RoundedRectangle(cornerRadius: 5).fill(.quaternary)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 5))
             } else {
                 Image(systemName: clip.contentType.symbolName)
                     .font(.system(size: side * 0.45))
@@ -140,6 +139,14 @@ struct ClipThumbnail: View {
             }
         }
         .frame(width: side, height: side)
+        // Clipped *after* the frame, never inside it.
+        //
+        // `contentMode: .fill` scales an image to cover the square, so a 1761x939 screenshot
+        // renders `side` tall and far wider than `side`. Clipping within the Group leaves that
+        // overflow free to draw across the neighbouring tiles — every tile the same height, each
+        // a different width, and the spill growing with the zoom slider. A clip applied to the
+        // laid-out frame bounds the drawing as well as the layout.
+        .clipShape(RoundedRectangle(cornerRadius: 5))
         // Keyed on the thumbnail path as well as the id.
         //
         // A clip is stored before enrichment runs, so it starts with no thumbnail. Enrichment
