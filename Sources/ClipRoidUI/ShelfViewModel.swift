@@ -325,13 +325,10 @@ public final class ShelfViewModel {
     /// Copies without pasting — for the shelf's "copy" affordance.
     public func copyOnly(_ clip: ClipSummary) {
         Task {
-            guard let text = try? await store.fullText(id: clip.id) else { return }
-            await pasteboardWrite(text, uuid: clip.uuid)
+            // Through the shared builder, so a file clip lands as the file rather than its path.
+            guard let payload = await coordinator.clipboardPayload(for: clip) else { return }
+            await coordinator.writeOnly(payload, originClipUUID: clip.uuid)
         }
-    }
-
-    private func pasteboardWrite(_ text: String, uuid: UUID) async {
-        await coordinator.writeOnly(.text(text), originClipUUID: uuid)
     }
 
     public func paste(_ clip: ClipSummary) {

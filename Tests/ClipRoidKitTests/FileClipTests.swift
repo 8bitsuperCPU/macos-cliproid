@@ -3,6 +3,7 @@ import Foundation
 @testable import ClipRoidKit
 import ClipRoidCore
 import ClipRoidStore
+import ClipRoidPlatform
 
 @Suite("File clips")
 struct FileClipTests {
@@ -99,6 +100,114 @@ struct FileClipTests {
         try await store.insert(clip)
 
         #expect(try await store.search("quarterly").count == 1)
+        await store.close()
+    }
+}
+
+/// Putting a clip back on the pasteboard.
+///
+/// Capture was never the problem here: a copied file was stored correctly as a `.file` clip with
+/// its path in the `files` table. But a file clip's *full text* is its path, and several "copy
+/// this clip" paths built `.text(fullText)` themselves rather than going through the coordinator —
+/// so loading a copied document into the clipboard and pasting it into Notes produced
+/// `/Users/…/PROJECTS.md` instead of the document. Auto-paste used the coordinator and worked,
+/// which is what made it look like a problem with the receiving app.
+@Suite("Clipboard payloads")
+struct ClipboardPayloadTests {
+
+    private func scratchFile(_ name: String) throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ClipRoidPayload-\(UUID().uuidString)-\(name)")
+        try "hello".write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private func makeCoordinator(_ store: ClipStore) async -> PasteCoordinator {
+        await PasteCoordinator(
+            store: store, pasteboard: await SystemPasteboard(),
+            deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
+    }
+
+    private func open(_ scratch: ScratchDirectory) async throws -> ClipStore {
+        let store = ClipStore.makeDefault(root: scratch.url)
+        try await store.open(backupDirectory: nil)
+        return store
+    }
+
+    @Test("A file clip goes back on the pasteboard as the file, not its path")
+    func fileClipPastesAsFile() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let url = try scratchFile("PROJECTS.md")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let summary = try await store.insert(CapturedClip(
+            contentType: .file, contentHash: Dedupe.hash(url.path), body: url.path,
+            fileURLs: [url]))
+
+        let payload = await makeCoordinator(store).clipboardPayload(for: summary)
+        guard case .files(let urls) = payload else {
+            Issue.record("expected .files, got \(String(describing: payload))")
+            return
+        }
+        #expect(urls.map(\.path) == [url.path])
+        await store.close()
+    }
+
+    @Test("Several copied files all come back")
+    func multipleFiles() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let a = try scratchFile("a.txt")
+        let b = try scratchFile("b.txt")
+        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let summary = try await store.insert(CapturedClip(
+            contentType: .file, contentHash: Dedupe.hash(a.path + b.path),
+            body: "\(a.path)\n\(b.path)", fileURLs: [a, b]))
+
+        guard case .files(let urls) = await makeCoordinator(store).clipboardPayload(for: summary) else {
+            Issue.record("expected .files")
+            return
+        }
+        #expect(Set(urls.map(\.path)) == Set([a.path, b.path]))
+        await store.close()
+    }
+
+    /// A file moved or deleted since it was copied cannot be pasted as a file. Handing over the
+    /// path as text is worse than the document but better than a broken reference the receiving
+    /// app silently drops.
+    @Test("A file that no longer exists degrades to its path")
+    func missingFileFallsBackToText() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let url = try scratchFile("gone.txt")
+
+        let summary = try await store.insert(CapturedClip(
+            contentType: .file, contentHash: Dedupe.hash(url.path), body: url.path,
+            fileURLs: [url]))
+        try FileManager.default.removeItem(at: url)
+
+        guard case .text(let text) = await makeCoordinator(store).clipboardPayload(for: summary) else {
+            Issue.record("expected .text for a missing file")
+            return
+        }
+        #expect(text == url.path)
+        await store.close()
+    }
+
+    @Test("Ordinary text clips are unaffected")
+    func textIsStillText() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let summary = try await store.insert(CapturedClip(
+            contentType: .text, contentHash: Dedupe.hash("plain"), body: "plain"))
+
+        guard case .text(let text) = await makeCoordinator(store).clipboardPayload(for: summary) else {
+            Issue.record("expected .text")
+            return
+        }
+        #expect(text == "plain")
         await store.close()
     }
 }

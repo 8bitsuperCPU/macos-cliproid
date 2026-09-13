@@ -54,7 +54,7 @@ public final class PasteCoordinator {
     /// Puts a clip on the pasteboard and, if permitted, delivers it to the captured target.
     @discardableResult
     public func paste(_ summary: ClipSummary) async -> PasteOutcome {
-        guard let payload = await payload(for: summary) else {
+        guard let payload = await clipboardPayload(for: summary) else {
             return .clipboardOnly(reason: .noTargetApp)
         }
 
@@ -83,7 +83,13 @@ public final class PasteCoordinator {
 
     /// Reconstructs the payload from the store. `ClipSummary` carries only a preview, never the
     /// full content — which is what keeps a 10,000-row timeline cheap.
-    private func payload(for summary: ClipSummary) async -> PasteboardPayload? {
+    ///
+    /// Public because *every* path that puts a clip on the pasteboard has to use it. Several used
+    /// to build `.text(fullText)` themselves, and for a file clip the full text is its path — so
+    /// "Load into Clipboard" on a copied document pasted `/Users/…/PROJECTS.md` into Notes instead
+    /// of the file. Auto-paste went through here and worked, which is what made it look like a
+    /// Notes problem rather than ours.
+    public func clipboardPayload(for summary: ClipSummary) async -> PasteboardPayload? {
         switch summary.contentType {
         case .file:
             // As files, not as their paths. Pasting text produced "/Users/…/Book.xlsx" in the

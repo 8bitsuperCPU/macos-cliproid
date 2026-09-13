@@ -529,22 +529,17 @@ public final class LibraryViewModel {
     /// Puts a clip on the clipboard without pasting it anywhere.
     public func loadIntoClipboard(_ summary: ClipSummary, transform: TextCaseTransform? = nil) {
         Task {
-            guard let coordinator else { return }
-            switch summary.contentType {
-            case .image, .screenshot:
-                if let path = summary.thumbnailPath {
-                    let full = path.replacingOccurrences(of: ".thumb.png", with: ".png")
-                    if let data = await store.imageData(forBlobPath: full) {
-                        await coordinator.writeOnly(.image(data), originClipUUID: summary.uuid)
-                        return
-                    }
-                }
-                fallthrough
-            default:
-                let text = (try? await store.fullText(id: summary.id)) ?? summary.displayText
-                await coordinator.writeOnly(
-                    .text(transform?.apply(to: text) ?? text), originClipUUID: summary.uuid)
+            guard let coordinator,
+                  let payload = await coordinator.clipboardPayload(for: summary) else { return }
+            // A case transform only means anything for text. Applying it by rebuilding the
+            // payload as text is what turned a copied file into its own path.
+            let final: PasteboardPayload
+            if let transform, case .text(let text) = payload {
+                final = .text(transform.apply(to: text))
+            } else {
+                final = payload
             }
+            await coordinator.writeOnly(final, originClipUUID: summary.uuid)
         }
     }
 

@@ -42,8 +42,10 @@ public struct ContentView: View {
 
     private func paste(_ clip: ClipSummary) {
         Task {
-            guard let text = try? await environment.store.fullText(id: clip.id) else { return }
-            await environment.pasteboard.write(.text(text), originClipUUID: clip.uuid)
+            // The shared builder, not `.text(fullText)`: a file clip's full text is its path, so
+            // building the payload here pasted "/Users/…/PROJECTS.md" instead of the document.
+            guard let payload = await environment.paste.clipboardPayload(for: clip) else { return }
+            await environment.paste.writeOnly(payload, originClipUUID: clip.uuid)
         }
     }
 }
