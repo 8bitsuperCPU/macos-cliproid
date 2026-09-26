@@ -143,7 +143,7 @@ public final class AppEnvironment {
         await enrichment.start()
         await retention.updatePolicy(settings.retentionPolicy)
         await retention.start()
-        await capture.updateIgnoredApps(Set(settings.ignoredBundleIds))
+        await applyCaptureSettings()
         applyPasteSettings()
         await applyLinkPreviewSettings()
         await applyShortcutSettings()
@@ -158,6 +158,12 @@ public final class AppEnvironment {
     /// control that looks live and changes nothing.
     public func applyPasteSettings() {
         deliverer.isAutoPasteEnabled = settings.autoPasteEnabled
+    }
+
+    /// Hands the "Never capture from" list to the capture actor, so an app added in Settings is
+    /// ignored from its next copy rather than from the next launch.
+    public func applyCaptureSettings() async {
+        await capture.updateIgnoredApps(Set(settings.ignoredBundleIds))
     }
 
     /// Hands the link-preview preference to the enrichment actor.

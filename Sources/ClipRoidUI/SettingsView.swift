@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import ClipRoidCore
 import ClipRoidKit
 import ClipRoidPlatform
@@ -11,6 +12,7 @@ public struct SettingsView: View {
     var onShelfChange: @MainActor () -> Void
     var onShortcutChange: @MainActor () -> Void
     var onPasteChange: @MainActor () -> Void
+    var onCaptureChange: @MainActor () -> Void
     @State private var rulesModel: RulesViewModel
     /// How many clips "Clear History" is about to delete. Non-nil presents the confirmation.
     @State private var pendingClearCount: Int?
@@ -22,7 +24,8 @@ public struct SettingsView: View {
         rulesModel: RulesViewModel,
         onShelfChange: @escaping @MainActor () -> Void,
         onShortcutChange: @escaping @MainActor () -> Void,
-        onPasteChange: @escaping @MainActor () -> Void
+        onPasteChange: @escaping @MainActor () -> Void,
+        onCaptureChange: @escaping @MainActor () -> Void
     ) {
         self.settings = settings
         self.store = store
@@ -30,6 +33,7 @@ public struct SettingsView: View {
         self.onShelfChange = onShelfChange
         self.onShortcutChange = onShortcutChange
         self.onPasteChange = onPasteChange
+        self.onCaptureChange = onCaptureChange
     }
 
     public var body: some View {
@@ -376,7 +380,10 @@ public struct SettingsView: View {
                     ForEach(settings.ignoredBundleIds, id: \.self) { bundleId in
                         HStack {
                             AppIcon(bundleId: bundleId, side: 14)
-                            Text(bundleId).font(.caption)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(Self.appName(forBundleId: bundleId) ?? bundleId)
+                                Text(bundleId).font(.caption2).foregroundStyle(.secondary)
+                            }
                             Spacer()
                             Button("Remove") {
                                 settings.ignoredBundleIds.removeAll { $0 == bundleId }
@@ -385,7 +392,9 @@ public struct SettingsView: View {
                         }
                     }
                 }
+                Button("Add App…") { chooseAppsToIgnore() }
             }
+            .onChange(of: settings.ignoredBundleIds) { _, _ in onCaptureChange() }
 
             Section {
                 Text("ClipDroid stores everything on this Mac and makes no network requests.")
@@ -394,5 +403,32 @@ public struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Lets the user pick apps in Finder to add to "Never capture from".
+    ///
+    /// The list stores bundle identifiers, not paths, because that is what the capture side sees
+    /// for the frontmost app — and it survives the app being moved or updated.
+    private func chooseAppsToIgnore() {
+        let panel = NSOpenPanel()
+        panel.title = "Never Capture From"
+        panel.prompt = "Add"
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK else { return }
+
+        let chosen = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
+        for bundleId in chosen where !settings.ignoredBundleIds.contains(bundleId) {
+            settings.ignoredBundleIds.append(bundleId)
+        }
+    }
+
+    private static func appName(forBundleId bundleId: String) -> String? {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+            return nil
+        }
+        return FileManager.default.displayName(atPath: url.path)
     }
 }
