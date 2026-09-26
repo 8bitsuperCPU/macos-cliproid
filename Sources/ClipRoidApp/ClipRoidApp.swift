@@ -206,6 +206,7 @@ struct ClipRoidApp: App {
         Settings {
             SettingsView(
                 settings: environment.settings,
+                store: environment.store,
                 rulesModel: RulesViewModel(
                     store: environment.store, service: environment.smartFilters),
                 onShelfChange: {

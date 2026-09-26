@@ -84,6 +84,30 @@ struct ClipStoreTests {
         await store.close()
     }
 
+    /// "Clear History" means all of it: pinned and favourited clips included, and their blob files
+    /// with them.
+    @Test("Deleting everything removes every clip and its blob files")
+    func deleteAllRemovesEverything() async throws {
+        let scratch = ScratchDirectory()
+        let store = try await open(scratch)
+        let long = String(repeating: "y", count: SizeLimits.textBlobThreshold + 1024)
+        let pinned = try await store.insert(clip(long))
+        let favourite = try await store.insert(clip("favourite"))
+        try await store.insert(clip("plain"))
+        try await store.setPinned(true, ids: [pinned.id])
+        try await store.setFavorite(true, ids: [favourite.id])
+
+        #expect(try await store.deleteAll() == 3)
+        #expect(try await store.count() == 0)
+        #expect(try await store.search("favourite").isEmpty, "the FTS index must be emptied too")
+
+        let blobRoot = scratch.url.appendingPathComponent("clips")
+        let left = FileManager.default.enumerator(at: blobRoot, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "txt" }.count ?? 0
+        #expect(left == 0)
+        await store.close()
+    }
+
     @Test("Long text is retrievable in full even though only a prefix is indexed")
     func fullTextRoundTrips() async throws {
         let scratch = ScratchDirectory()

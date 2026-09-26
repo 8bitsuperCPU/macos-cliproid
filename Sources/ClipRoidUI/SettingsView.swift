@@ -2,23 +2,30 @@ import SwiftUI
 import ClipRoidCore
 import ClipRoidKit
 import ClipRoidPlatform
+import ClipRoidStore
 
 /// Preferences (spec §4.19). Covers what exists so far; grows with each milestone.
 public struct SettingsView: View {
     @Bindable var settings: SettingsStore
+    let store: ClipStore
     var onShelfChange: @MainActor () -> Void
     var onShortcutChange: @MainActor () -> Void
     var onPasteChange: @MainActor () -> Void
     @State private var rulesModel: RulesViewModel
+    /// How many clips "Clear History" is about to delete. Non-nil presents the confirmation.
+    @State private var pendingClearCount: Int?
+    @State private var clearError: String?
 
     public init(
         settings: SettingsStore,
+        store: ClipStore,
         rulesModel: RulesViewModel,
         onShelfChange: @escaping @MainActor () -> Void,
         onShortcutChange: @escaping @MainActor () -> Void,
         onPasteChange: @escaping @MainActor () -> Void
     ) {
         self.settings = settings
+        self.store = store
         _rulesModel = State(initialValue: rulesModel)
         self.onShelfChange = onShelfChange
         self.onShortcutChange = onShortcutChange
@@ -126,9 +133,37 @@ public struct SettingsView: View {
                     Text("90 days").tag(90)
                     Text("Never").tag(0)
                 }
+                VStack(alignment: .leading, spacing: 2) {
+                    Button("Clear History…", role: .destructive) {
+                        Task { pendingClearCount = (try? await store.count()) ?? 0 }
+                    }
+                    Text("Deletes every clip, including pinned and favourite ones.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
+        // Counted when asked rather than kept live: the number is only needed at the moment of
+        // confirming, and "Delete 1,204 clips" is what makes an irreversible action legible.
+        .confirmationDialog(
+            pendingClearCount == 1 ? "Delete 1 clip?" : "Delete all \(pendingClearCount ?? 0) clips?",
+            isPresented: Binding(get: { (pendingClearCount ?? 0) > 0 },
+                                 set: { if !$0 { pendingClearCount = nil } })
+        ) {
+            Button("Delete All", role: .destructive) {
+                Task {
+                    do { try await store.deleteAll() }
+                    catch { clearError = error.localizedDescription }
+                }
+            }
+        } message: {
+            Text("Pinned and favourite clips are deleted too. This can't be undone.")
+        }
+        .alert("Couldn't clear history", isPresented: Binding(
+            get: { clearError != nil }, set: { if !$0 { clearError = nil } })
+        ) {} message: {
+            Text(clearError ?? "")
+        }
     }
 
     private var shelf: some View {

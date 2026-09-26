@@ -579,20 +579,34 @@ public actor ClipStore {
         }
 
         let doomed = RetentionEvaluator.idsToPurge(candidates: candidates, policy: policy, now: now)
-        guard !doomed.isEmpty else { return [] }
+        try await purge(doomed)
+        return doomed
+    }
 
+    /// Deletes every clip, pinned and favourited ones included. Settings' "Clear History".
+    ///
+    /// Goes through `delete(ids:)` rather than a bare `DELETE FROM clips`, which would orphan
+    /// every blob file on disk and send no deltas, leaving the Library showing clips that no
+    /// longer exist.
+    @discardableResult
+    public func deleteAll() async throws -> Int {
+        let ids = try await db.query("SELECT id FROM clips;").map { $0.int64(0) }
+        try await purge(ids)
+        return ids.count
+    }
+
+    private func purge(_ ids: [Int64]) async throws {
+        guard !ids.isEmpty else { return }
         // Chunked so one sweep of a large history cannot hold a write lock for an unbounded time,
         // and so the UI keeps getting delete deltas as it progresses.
-        for chunk in stride(from: 0, to: doomed.count, by: 500) {
-            let slice = Array(doomed[chunk..<min(chunk + 500, doomed.count)])
-            try await delete(ids: slice)
+        for chunk in stride(from: 0, to: ids.count, by: 500) {
+            try await delete(ids: Array(ids[chunk..<min(chunk + 500, ids.count)]))
             await Task.yield()
         }
 
         // FTS5 leaves its index fragmented after bulk deletes; this compacts it.
         try? await db.execute("INSERT INTO clip_fts(clip_fts) VALUES('optimize');")
         try? await pruneOrphanTags()
-        return doomed
     }
 
     /// Surfaced in Settings so the user can see what the history is costing them (spec §4.19).

@@ -104,6 +104,29 @@ struct LibraryViewModelTests {
         await store.close()
     }
 
+    /// Clearing the history from Settings must empty the Library and its sidebar counts, not just
+    /// the list — otherwise "Images 2" sits beside a section with nothing in it.
+    @Test("Clearing the history empties the list and the sidebar counts")
+    func clearHistoryEmptiesFacets() async throws {
+        let scratch = Scratch()
+        let store = try await makeStore(scratch)
+        try await store.insert(clip("a", type: .image))
+        try await store.insert(clip("b", type: .image))
+        try await store.insert(clip("c", type: .text))
+
+        let model = LibraryViewModel(store: store)
+        model.start()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(model.typeCounts[.image] == 2)
+
+        try await store.deleteAll()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(model.clips.isEmpty)
+        #expect(model.totalCount == 0)
+        #expect((model.typeCounts[.image] ?? 0) == 0)
+        await store.close()
+    }
+
     /// Editing goes through the FTS update trigger, so the clip must become findable by its new
     /// text and stop being findable by its old. This is the round-trip that a desynchronised index
     /// would fail.

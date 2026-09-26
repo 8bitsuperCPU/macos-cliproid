@@ -336,6 +336,9 @@ public final class LibraryViewModel {
             if let focusedId, set.contains(focusedId) { self.focusedId = nil }
             if let anchor = selectionAnchor, set.contains(anchor) { selectionAnchor = nil }
             totalCount = max(0, totalCount - ids.count)
+            // The sidebar's type, app and tag counts are per-clip too. Without this, clearing the
+            // history leaves "Images 12" beside a section that is now empty.
+            Task { await refreshFacets() }
             // Expanded mode shows one clip and hides the list. Deleting that clip would leave an
             // empty pane with no visible way back to anything.
             if selection.isEmpty { isDetailExpanded = false }
