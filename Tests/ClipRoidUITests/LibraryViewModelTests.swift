@@ -35,29 +35,35 @@ struct LibraryViewModelTests {
         await store.close()
     }
 
-    /// The sidebar section, the chips and the search box all fold into one query, so a clip has to
-    /// satisfy all three at once rather than whichever was applied last.
-    @Test("Section and type chips compose")
-    func sectionAndChipsCompose() async throws {
+    /// The type chips are only shown under All Clips, so they must only filter there. A chip left
+    /// on from All Clips used to add its type to every sidebar section — Images appearing under
+    /// Text — with no visible chip to explain it or turn it off.
+    @Test("Type chips only filter under All Clips")
+    func chipsOnlyApplyUnderAll() async throws {
         let scratch = Scratch()
         let store = try await makeStore(scratch)
         try await store.insert(clip("safari code", type: .code, app: "com.apple.Safari"))
         try await store.insert(clip("safari text", type: .text, app: "com.apple.Safari"))
+        try await store.insert(clip("safari image", type: .image, app: "com.apple.Safari"))
         try await store.insert(clip("xcode code", type: .code, app: "com.apple.dt.Xcode"))
 
         let model = LibraryViewModel(store: store)
         model.start()
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(model.clips.count == 3)
+        model.activeTypes = [.image]
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(model.clips.map(\.preview) == ["safari image"])
+
+        model.section = .type(.text)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(model.clips.map(\.preview) == ["safari text"], "the hidden Images chip must not leak in")
 
         model.section = .app("com.apple.Safari")
         try await Task.sleep(for: .milliseconds(250))
-        #expect(model.clips.count == 2)
+        #expect(model.clips.count == 3)
 
-        model.activeTypes = [.code]
+        model.section = .all
         try await Task.sleep(for: .milliseconds(250))
-        #expect(model.clips.count == 1, "app filter AND type chip, not either")
-        #expect(model.clips.first?.preview == "safari code")
+        #expect(model.clips.map(\.preview) == ["safari image"], "the chip is kept for All Clips")
         await store.close()
     }
 

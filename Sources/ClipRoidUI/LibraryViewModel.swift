@@ -226,14 +226,14 @@ public final class LibraryViewModel {
             let page: [ClipSummary]
             // A category is a join against clip_categories rather than a column predicate, so it
             // cannot fold into SearchQuery the way the other facets do.
-            if case .category(let categoryId) = section, searchText.isEmpty, activeTypes.isEmpty {
+            if case .category(let categoryId) = section, searchText.isEmpty {
                 guard clips.isEmpty else { hasMore = false; return }
                 page = try await store.clips(inCategory: categoryId, limit: 500)
                 hasMore = false
                 clips.append(contentsOf: page)
                 return
             }
-            if case .tag(let name) = section, searchText.isEmpty, activeTypes.isEmpty {
+            if case .tag(let name) = section, searchText.isEmpty {
                 guard clips.isEmpty else { hasMore = false; return }
                 page = try await store.clips(withTag: name, limit: 500)
                 hasMore = false
@@ -268,11 +268,19 @@ public final class LibraryViewModel {
         }
     }
 
+    /// The chips are only shown under All Clips, so only there do they filter. Applying them
+    /// elsewhere made a remembered Images chip invisibly add images to every Type section, and
+    /// silently dropped the category or tag join. They are kept, not cleared, so returning to All
+    /// Clips brings them back.
+    private var effectiveTypes: Set<ClipContentType> {
+        section == .all ? activeTypes : []
+    }
+
     /// The sidebar section, the chips and the search box all fold into one query object, so there
     /// is a single code path to reason about rather than three that can disagree.
     private var currentQuery: SearchQuery {
         var query = SearchQueryParser.parse(searchText)
-        query.types.formUnion(activeTypes)
+        query.types.formUnion(effectiveTypes)
 
         switch section {
         case .all: break
