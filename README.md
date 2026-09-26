@@ -201,7 +201,7 @@ but Gatekeeper rejects it anywhere else.
 count. It runs the tests, then calls `bundle.sh release --dmg`. The version comes from the latest
 git tag, so tag before building a release.
 
-Someone you hand an un-notarized `.dmg` to will be told ClipDroid *"cannot be opened because Apple
+Application is un-notarized, the `.dmg` to will be told ClipDroid *"cannot be opened because Apple
 cannot check it for malicious software."* On macOS 15 and later, Control-click → Open no longer gets
 past that — they have to open **System Settings → Privacy & Security** and press **Open Anyway**
 after the first refusal.
