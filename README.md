@@ -197,9 +197,13 @@ therefore the paid Apple Developer Program. An Apple Development certificate sig
 but Gatekeeper rejects it anywhere else.
 
 ```bash
-./Scripts/bundle.sh release --dmg              # builds dist/ClipDroid-<version>.dmg
-./Scripts/bundle.sh release --notarize --dmg   # once you have a Developer ID certificate
+./Scripts/release.sh               # tests, then builds dist/ClipDroid-<version>.dmg
+./Scripts/release.sh --notarize    # once you have a Developer ID certificate
 ```
+
+`release.sh` refuses to build from uncommitted changes, because the build number is the commit
+count. It runs the tests, then calls `bundle.sh release --dmg`. The version comes from the latest
+git tag, so tag before building a release.
 
 Someone you hand an un-notarized `.dmg` to will be told ClipDroid *"cannot be opened because Apple
 cannot check it for malicious software."* On macOS 15 and later, Control-click → Open no longer gets
@@ -233,6 +237,7 @@ behind `FeatureFlags.inlineShortcuts`, because it requires a `CGEventTap` that o
 Sources/            the seven targets above
 Tests/              one suite per target
 Scripts/bundle.sh   assembles, signs, and optionally notarizes and packages the .app
+Scripts/release.sh  tests, then builds a release .dmg via bundle.sh
 Docs/spikes.md      findings from the four de-risking spikes, with the evidence
 spec.md             the original product specification
 ```
