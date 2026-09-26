@@ -9,6 +9,9 @@ fetching a page title when you copy a link, and that is opt-in and off by defaul
 
 > **Status:** feature-complete through milestone M5; M6 (tools, intelligence, ship) in progress.
 > Not yet notarized — see [Distribution](#distribution).
+>
+> **Download:** [ClipDroid-0.1.0.dmg](https://github.com/8bitsuperCPU/macos-cliproid/releases/download/v0.1.0/ClipDroid-0.1.0.dmg)
+> from the [latest release](https://github.com/8bitsuperCPU/macos-cliproid/releases/latest).
 
 ![The Library window: a grid of captured clips with a faceted sidebar and type chips](Docs/images/library.png)
 
@@ -43,6 +46,10 @@ Private keys, JWTs, API-key shapes and Luhn-valid card numbers are marked `secre
 off the shelf, and eligible for auto-deletion. Email addresses and phone numbers are recorded as
 `personal` but never blurred — a flat "sensitive/not" that fires on every email address blurs most
 ordinary clips, turns the badge into noise, and gets the feature switched off.
+
+Apps you never want captured from — a password manager, a banking app — can be added under
+**Settings → Privacy → Never capture from** with **Add App…**, which picks them from Finder. Changes
+apply from the next copy.
 
 **Tools** — pick a colour from anywhere on screen with `⌃⌘P`, or click any pixel of an image in the
 preview; either way it is filed as a colour clip with its hex.
@@ -171,22 +178,11 @@ row count never moves.
 ## Testing
 
 ```bash
-swift test     # 281 tests
+swift test     # 298 tests
 ```
 
 Tests use swift-testing (`@Suite` / `@Test` / `#expect`). Store tests get a temp-directory database
 each; UI tests get an isolated `UserDefaults` suite, so a test run never touches real preferences.
-
-Two things this codebase has learned the hard way, both recorded here because the tests did not
-catch them:
-
-- **A passing test suite is not a working app.** Several real bugs — blank image tiles, a preview
-  that closed in one second, cards that would not resize, a sort slider that did nothing — were
-  found by running the app and taking screenshots, not by the suite. Milestone sign-off is a manual
-  walkthrough of observable user actions, not a green run.
-- **Test the control, not just the model.** The shelf-size slider was inert for the whole of its
-  travel while two tests covering card sizing passed throughout, because both exercised the clamp
-  over its own range rather than over the range the slider actually offered.
 
 ---
 
