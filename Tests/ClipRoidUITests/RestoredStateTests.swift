@@ -12,10 +12,6 @@ import ClipRoidPlatform
 @MainActor
 struct RestoredStateTests {
 
-    private func scratchDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "ClipRoidRestoreTests-\(UUID().uuidString)")!
-    }
-
     private func makeStore() async throws -> ClipStore {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString)
@@ -36,7 +32,7 @@ struct RestoredStateTests {
     @Test("The shelf reopens with the type filter it was left on")
     func shelfTypeFilterSurvivesRestart() async throws {
         let store = try await makeStore()
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
 
         let first = await makeShelf(store, SettingsStore(defaults: defaults))
         first.activeTypes = [.image]
@@ -50,7 +46,7 @@ struct RestoredStateTests {
     @Test("The shelf reopens with its collection and favourites filters")
     func shelfOtherFiltersSurvive() async throws {
         let store = try await makeStore()
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
 
         let first = await makeShelf(store, SettingsStore(defaults: defaults))
         first.favouritesOnly = true
@@ -67,7 +63,7 @@ struct RestoredStateTests {
     @Test("Clearing the shelf filters persists too")
     func shelfClearedFiltersPersist() async throws {
         let store = try await makeStore()
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
 
         let first = await makeShelf(store, SettingsStore(defaults: defaults))
         first.activeTypes = [.image]
@@ -84,7 +80,7 @@ struct RestoredStateTests {
     @Test("The Library reopens with its section, chips and sort")
     func librarySurvivesRestart() async throws {
         let store = try await makeStore()
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
 
         let first = LibraryViewModel(store: store, settings: SettingsStore(defaults: defaults))
         first.section = .app("com.apple.Safari")
@@ -124,7 +120,7 @@ struct RestoredStateTests {
         #expect(LibrarySection(storageKey: "category:not-a-number") == nil)
 
         let store = try await makeStore()
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
         defaults.set("nonsense", forKey: "library.section")
         defaults.set([999, 1], forKey: "library.types")
 
@@ -139,7 +135,7 @@ struct RestoredStateTests {
     @Test("Restoring does not fire a reload")
     func restoreIsSilent() async throws {
         let store = try await makeStore()
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
         defaults.set([3], forKey: "shelf.types")
 
         let shelf = await makeShelf(store, SettingsStore(defaults: defaults))

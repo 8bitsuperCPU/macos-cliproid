@@ -108,7 +108,7 @@ struct ShelfMetricsTests {
 
     @Test("Collapsed bar settings persist")
     func collapsedSettingsPersist() {
-        let defaults = UserDefaults(suiteName: "Collapsed-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults()
         do {
             let settings = SettingsStore(defaults: defaults)
             settings.collapsedThickness = 20
@@ -147,7 +147,7 @@ struct ShelfMetricsTests {
 
     @Test("Shelf appearance settings persist")
     func appearancePersists() {
-        let defaults = UserDefaults(suiteName: "ShelfAppearance-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults()
         do {
             let settings = SettingsStore(defaults: defaults)
             settings.shelfThickness = 300
@@ -186,7 +186,7 @@ struct ShelfContrastTests {
     private func settings(background: ShelfBackground, hex: String,
                           style: ShelfTextStyle = .automatic) -> SettingsStore {
         let store = SettingsStore(
-            defaults: UserDefaults(suiteName: "Contrast-\(UUID().uuidString)")!)
+            defaults: ScratchDefaults())
         store.shelfBackground = background
         store.shelfTintHex = hex
         store.shelfTextStyle = style
@@ -247,13 +247,13 @@ struct PreviewSizingTests {
     @Test("Preview height defaults to half the screen")
     func defaultsToHalf() {
         let settings = SettingsStore(
-            defaults: UserDefaults(suiteName: "Preview-\(UUID().uuidString)")!)
+            defaults: ScratchDefaults())
         #expect(settings.previewHeightFraction == 0.5)
     }
 
     @Test("Preview height persists")
     func persists() {
-        let defaults = UserDefaults(suiteName: "PreviewPersist-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults()
         do {
             let settings = SettingsStore(defaults: defaults)
             settings.previewHeightFraction = 0.75
@@ -277,13 +277,13 @@ struct PreviewCloseDelayTests {
     @Test("Default delay leaves time to cross the gap")
     func sensibleDefault() {
         let settings = SettingsStore(
-            defaults: UserDefaults(suiteName: "Delay-\(UUID().uuidString)")!)
+            defaults: ScratchDefaults())
         #expect(settings.previewCloseDelay == 1.5)
     }
 
     @Test("Delay persists")
     func persists() {
-        let defaults = UserDefaults(suiteName: "DelayPersist-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults()
         do {
             let settings = SettingsStore(defaults: defaults)
             settings.previewCloseDelay = 3.0
@@ -296,7 +296,7 @@ struct PreviewCloseDelayTests {
 @MainActor
 struct LibraryLayoutTests {
     private func scratch() -> UserDefaults {
-        UserDefaults(suiteName: "Layout-\(UUID().uuidString)")!
+        ScratchDefaults()
     }
 
     /// Spec §6 pitches the app as a visual gallery of copied assets, so a list of text rows is

@@ -6,19 +6,13 @@ import ClipRoidCore
 @Suite("Settings")
 @MainActor
 struct SettingsStoreTests {
-    /// An isolated suite per test, so the developer's real preferences are never touched and tests
-    /// cannot contaminate each other through shared global state.
-    private func scratchDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "ClipRoidSettingsTests-\(UUID().uuidString)")!
-    }
-
     /// The flag has to make the feature unreachable, not merely invisible. AppEnvironment starts
     /// the keystroke tap from `inlineShortcutsEnabled`, so a user who had already switched
     /// shortcuts on would otherwise keep the tap running with the Settings pane now hidden — the
     /// worst of both: a keystroke observer they can neither see nor turn off.
     @Test("While the feature flag is off, inline shortcuts cannot be enabled")
     func inlineShortcutsStayOffBehindTheFlag() {
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
         // Somebody who had turned the feature on before it was withdrawn.
         defaults.set(true, forKey: "shortcuts.enabled")
         let settings = SettingsStore(defaults: defaults)
@@ -37,7 +31,7 @@ struct SettingsStoreTests {
 
     @Test("Defaults are sensible on a fresh install")
     func freshDefaults() {
-        let settings = SettingsStore(defaults: scratchDefaults())
+        let settings = SettingsStore(defaults: ScratchDefaults())
         #expect(settings.shelfPosition == .top)
         #expect(settings.shelfItemCount == 10)
         #expect(settings.sensitiveDetectionEnabled)
@@ -47,7 +41,7 @@ struct SettingsStoreTests {
 
     @Test("Changes persist across a restart")
     func persists() {
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
         do {
             let settings = SettingsStore(defaults: defaults)
             settings.shelfPosition = .right
@@ -66,7 +60,7 @@ struct SettingsStoreTests {
         (0, 5), (4, 5), (5, 5), (12, 12), (20, 20), (21, 20), (10_000, 20),
     ])
     func clampsItemCount(input: Int, expected: Int) {
-        let settings = SettingsStore(defaults: scratchDefaults())
+        let settings = SettingsStore(defaults: ScratchDefaults())
         settings.shelfItemCount = input
         #expect(settings.shelfItemCount == expected)
     }
@@ -75,14 +69,14 @@ struct SettingsStoreTests {
     /// decode and taking the settings window down with it.
     @Test("An unknown stored position falls back to the default")
     func unknownPositionFallsBack() {
-        let defaults = scratchDefaults()
+        let defaults = ScratchDefaults()
         defaults.set("dynamic-island", forKey: "shelf.position")
         #expect(SettingsStore(defaults: defaults).shelfPosition == .top)
     }
 
     @Test("Retention policy reflects the settings, with 0 meaning unlimited")
     func buildsRetentionPolicy() {
-        let settings = SettingsStore(defaults: scratchDefaults())
+        let settings = SettingsStore(defaults: ScratchDefaults())
         settings.maxClipCount = 500
         settings.maxClipAgeDays = 30
         #expect(settings.retentionPolicy.maxClipCount == 500)
@@ -97,7 +91,7 @@ struct SettingsStoreTests {
 
     @Test("Turning off secret hiding lets secrets onto the shelf")
     func secretHidingIsOptional() {
-        let settings = SettingsStore(defaults: scratchDefaults())
+        let settings = SettingsStore(defaults: ScratchDefaults())
         settings.hideSecretsFromShelf = false
         #expect(!settings.hideSecretsFromShelf)
     }

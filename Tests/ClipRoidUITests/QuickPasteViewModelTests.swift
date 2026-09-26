@@ -118,8 +118,7 @@ struct ShelfViewModelTests {
         let coordinator = PasteCoordinator(
             store: store, pasteboard: await SystemPasteboard(),
             deliverer: PasteDeliverer(), frontmost: WorkspaceFrontmostAppProvider())
-        // An isolated defaults suite, so tests never touch the developer's real preferences.
-        let defaults = UserDefaults(suiteName: "ClipRoidTests-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults()
         let settings = SettingsStore(defaults: defaults)
         return (ShelfViewModel(store: store, coordinator: coordinator, settings: settings), store)
     }
